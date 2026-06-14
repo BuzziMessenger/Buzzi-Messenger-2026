@@ -14,12 +14,75 @@ const CHANNELS_FILE = path.join(process.cwd(), "data_channels.json");
 const BUGS_FILE = path.join(process.cwd(), "data_bugs.json");
 const FRIEND_REQUESTS_FILE = path.join(process.cwd(), "data_friend_requests.json");
 const GAMES_FILE = path.join(process.cwd(), "data_games.json");
+const BLOCKED_IPS_FILE = path.join(process.cwd(), "data_blocked_ips.json");
+const BANNED_EMAILS_FILE = path.join(process.cwd(), "data_banned_emails.json");
 
-const isVercel = !!process.env.VERCEL;
+function getBlockedIps(): string[] {
+  return readJsonFile<string[]>(BLOCKED_IPS_FILE, []);
+}
+
+function getBannedEmails(): string[] {
+  return readJsonFile<string[]>(BANNED_EMAILS_FILE, []);
+}
+
+function banEmail(email: string): void {
+  const emails = getBannedEmails();
+  if (!emails.includes(email)) {
+    emails.push(email);
+    writeJsonFile(BANNED_EMAILS_FILE, emails);
+  }
+}
+
+function unbanEmail(email: string): void {
+  const emails = getBannedEmails();
+  const filtered = emails.filter(item => item !== email);
+  writeJsonFile(BANNED_EMAILS_FILE, filtered);
+}
+
+function blockIp(ip: string): void {
+  const ips = getBlockedIps();
+  if (!ips.includes(ip)) {
+    ips.push(ip);
+    writeJsonFile(BLOCKED_IPS_FILE, ips);
+  }
+}
+
+function unblockIp(ip: string): void {
+  const ips = getBlockedIps();
+  const filtered = ips.filter(item => item !== ip);
+  writeJsonFile(BLOCKED_IPS_FILE, filtered);
+}
+
+async function sendPushNotification(userId: string, title: string, message: string) {
+  const appId = process.env.ONESIGNAL_APP_ID;
+  const apiKey = process.env.ONESIGNAL_REST_API_KEY;
+  if (!appId || !apiKey) return;
+
+  try {
+    await fetch("https://onesignal.com/api/v1/notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Basic ${apiKey}`
+      },
+      body: JSON.stringify({
+        app_id: appId,
+        contents: { en: message },
+        headings: { en: title },
+        include_external_user_ids: [userId]
+      })
+    });
+  } catch (err) {
+    console.error("Error sending push notification:", err);
+  }
+}
+
 const inMemoryCache: Record<string, any> = {};
 
 // In-memory store for active typing statuses: senderUid -> { typingTo, lastActive: number }
 const activeTypingState: Record<string, { typingTo: string; lastActive: number }> = {};
+
+const isVercel = !!process.env.VERCEL;
 
 function readJsonFile<T>(filePath: string, defaultVal: T): T {
   if (isVercel) {
@@ -65,16 +128,17 @@ function writeJsonFile<T>(filePath: string, data: T): void {
 let mongoClient: MongoClient | null = null;
 let mongoDb: Db | null = null;
 let lastConnectAttempt = 0;
-const CONNECT_COOLDOWN_MS = 10000; // Overcooldown reduced to 10 seconds for faster automatic background recovery
+let connectionFailedPermanently = false; 
+const CONNECT_COOLDOWN_MS = 60000; // Increase cooldown to 1 minute
 
 async function getMongoDb(): Promise<Db | null> {
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URL || "const uri = process.env.MONGODB_URI;";
+  if (connectionFailedPermanently) return null;
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URL || "mongodb+srv://Buzzi:BuzziMessenger@buzzimessenger.yoprloo.mongodb.net/?appName=BuzziMessenger";
   if (!uri) return null;
   if (mongoDb) return mongoDb;
 
   const now = Date.now();
   if (now - lastConnectAttempt < CONNECT_COOLDOWN_MS) {
-    // Under cooldown to keep backend snappy and avoid blocking incoming requests
     return null;
   }
   
@@ -85,20 +149,27 @@ async function getMongoDb(): Promise<Db | null> {
       connectTimeoutMS: 4000
     });
     await mongoClient.connect();
+    
+    // Test authentication immediately
+    await mongoClient.db("admin").command({ ping: 1 });
+    
     mongoDb = mongoClient.db("buzzi");
     console.log("Successfully connected to MongoDB Atlas!");
     
-    // Attempt to drop the restrictive or stale index 'naam_1' to prevent duplicate key errors
     try {
       await mongoDb.collection("users").dropIndex("naam_1");
       console.log("Successfully dropped stale index 'naam_1' from 'users' collection");
     } catch (indexErr: any) {
-      console.log("Did not drop index 'naam_1' (it may not exist, or permissions are restricted):", indexErr.message);
+      console.log("Did not drop index 'naam_1':", indexErr.message);
     }
 
     return mongoDb;
-  } catch (err) {
-    console.warn("MongoDB connection failed, falling back to local memory database:", err);
+  } catch (err: any) {
+    console.warn("MongoDB connection failed, falling back to local memory database:", err.message);
+    if (err.message.includes("auth")) {
+      console.error("CRITICAL: MongoDB authentication failed. Check your MONGODB_URI/MONGO_URL configuration.");
+      connectionFailedPermanently = true;
+    }
     return null;
   }
 }
@@ -116,7 +187,29 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Blocked IP Protection Middleware
+app.use((req, res, next) => {
+  const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
+  const blockedIps = getBlockedIps();
+  
+  if (blockedIps.includes(clientIp)) {
+    // If it's blocked, restrict message POST, user POST and live chat
+    if (
+      req.path.startsWith("/api/db/messages") || 
+      req.path.startsWith("/api/db/users") || 
+      req.path.startsWith("/api/chat")
+    ) {
+      if (req.method !== "GET" && !req.path.includes("/api/admin/blocked-ips")) {
+        res.status(403).json({ error: `Je IP-adres (${clientIp}) is geblokkeerd door de beheerder wegens misbruik.` });
+        return;
+      }
+    }
+  }
+  next();
+});
 
 // Database Connection Status API
 app.get("/api/db/status", async (req, res) => {
@@ -126,7 +219,7 @@ app.get("/api/db/status", async (req, res) => {
         lastConnectAttempt = 0;
       }
       const dbInstance = await getMongoDb();
-      const rawUri = process.env.MONGODB_URI || process.env.MONGO_URL || "const uri = process.env.MONGODB_URI;";
+      const rawUri = process.env.MONGODB_URI || process.env.MONGO_URL || "mongodb+srv://Buzzi:BuzziMessenger@buzzimessenger.yoprloo.mongodb.net/?appName=BuzziMessenger";
       res.json({
         mongodb: {
           configured: !!rawUri,
@@ -146,29 +239,9 @@ app.get("/api/db/status", async (req, res) => {
     }
   });
 
-  // DOWNLOAD API: Download simulate retro APK for Android
+  // DOWNLOAD API: Redirection to the real Buzzi Messenger Android APK
   app.get("/api/download/apk", (req, res) => {
-    const host = req.get("host") || "buzzimessenger.nl";
-    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-    const targetUrl = `${protocol}://${host}`;
-    
-    const fileContent = "BUZZIMESSENGER_MOBILE_CLIENT v1.2.0-Buzzi\n\n" +
-      "Hallo retro chatter! We maken nu gebruik van de PWA (Progressive Web App) specificatie voor mobiele installaties!\n\n" +
-      "Hierdoor draait de messenger als standalone applicatie volledig op zichzelf, met een eigen app-icoon en zonder Chrome-adresbalken op je startscherm!\n\n" +
-      "====================================================\n" +
-      "📱 HOE TE INSTALLEREN (In 5 seconden):\n" +
-      "====================================================\n" +
-      `1. Open deze link in Chrome op je Android telefoon: ${targetUrl}\n` +
-      "2. Druk op de 3 puntjes rechtsbovenin Chrome.\n" +
-      "3. Tik op 'App installeren' of 'Toevoegen aan startscherm'!\n" +
-      "4. Start de app op via je startscherm - alles werkt live, standalone en up-to-date!\n\n" +
-      "Veel plezier met inbellen!";
-    
-    const buffer = Buffer.from(fileContent, "utf-8");
-    res.setHeader("Content-Disposition", "attachment; filename=BuzziMessenger_Android_Installatie.txt");
-    res.setHeader("Content-Type", "text/plain");
-    res.setHeader("Content-Length", buffer.length);
-    res.status(200).send(buffer);
+    res.redirect("https://sin1.contabostorage.com/127726bae0334a7b8a8425a4789fb816:appsonair-prod/70b7d4cc-9bc7-478b-ae16-e8b58392a72d/CPoIEsVItxddA7MStU5hp.apk");
   });
 
   // DOWNLOAD API: Download helper installer script to compile real EXE locally
@@ -310,8 +383,10 @@ exit
         return;
       }
       
+      const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
       const docToInsert = {
         ...message,
+        ip: clientIp,
         createdAtTimestamp: message.createdAtTimestamp || Date.now()
       };
 
@@ -339,11 +414,100 @@ exit
         }
         writeJsonFile(MESSAGES_FILE, messages);
       }
+
+      if (docToInsert.receiverId && docToInsert.text) {
+        sendPushNotification(docToInsert.receiverId, docToInsert.senderName || "Nieuw bericht", docToInsert.text);
+      }
+      
       res.json({ success: true, message: "Bericht succesvol opgeslagen." });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ========== FILE STORAGE API FOR RETRO DIRECT FILE TRANSFERS ==========
+  app.post("/api/db/files", async (req, res) => {
+    try {
+      const { id, name, dataUrl } = req.body;
+      if (!id || !dataUrl) {
+        res.status(400).json({ error: "Missing file id or dataUrl" });
+        return;
+      }
+
+      const dbInstance = await getMongoDb();
+      const docToInsert = { id, name, dataUrl, createdAt: Date.now() };
+
+      let savedOk = false;
+      if (dbInstance) {
+        try {
+          await dbInstance.collection("files").replaceOne(
+            { id },
+            docToInsert,
+            { upsert: true }
+          );
+          savedOk = true;
+        } catch (mongoErr) {
+          console.warn("MongoDB file save failed, using local fallback:", mongoErr);
+        }
+      }
+
+      if (!savedOk) {
+        const dirPath = path.join(process.cwd(), "tmp_files");
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+        fs.writeFileSync(path.join(dirPath, `${id}.json`), JSON.stringify(docToInsert), "utf8");
+      }
+
+      res.json({ success: true, message: "File uploaded successfully." });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/db/files/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      let record: any = null;
+
+      const dbInstance = await getMongoDb();
+      if (dbInstance) {
+        try {
+          record = await dbInstance.collection("files").findOne({ id });
+        } catch (mongoErr) {
+          console.warn("MongoDB file retrieve failed, trying local fallback:", mongoErr);
+        }
+      }
+
+      if (!record) {
+        const dirPath = path.join(process.cwd(), "tmp_files");
+        const filePath = path.join(dirPath, `${id}.json`);
+        if (fs.existsSync(filePath)) {
+          record = JSON.parse(fs.readFileSync(filePath, "utf8"));
+        }
+      }
+
+      if (!record || !record.dataUrl) {
+        res.status(404).json({ error: "File not found." });
+        return;
+      }
+
+      const match = record.dataUrl.match(/^data:(.*?);base64,(.*)$/);
+      if (match) {
+        const mimeType = match[1];
+        const base64Data = match[2];
+        const buffer = Buffer.from(base64Data, "base64");
+        res.setHeader("Content-Type", mimeType);
+        res.setHeader("Content-Disposition", `attachment; filename="${record.name || 'buzzi-file'}"`);
+        res.send(buffer);
+      } else {
+        res.status(400).json({ error: "Invalid data URL format." });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  // ======================================================================
 
   // DB API: Post User Typing Status
   app.post("/api/db/typing", (req, res) => {
@@ -403,14 +567,18 @@ exit
       if (dbInstance) {
         try {
           const users = await dbInstance.collection("users").find({}).toArray();
-          res.json(users);
+          const bannedEmails = getBannedEmails();
+          const filteredUsers = users.filter(u => !u.email || !bannedEmails.includes(u.email.split("#pwd_")[0]));
+          res.json(filteredUsers);
           return;
         } catch (mongoErr) {
           console.warn("MongoDB users query failed, falling back to local storage:", mongoErr);
         }
       }
       const users = readJsonFile<any[]>(USERS_FILE, []);
-      res.json(users);
+      const bannedEmails = getBannedEmails();
+      const filteredUsers = users.filter(u => !u.email || !bannedEmails.includes(u.email.split("#pwd_")[0]));
+      res.json(filteredUsers);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -421,14 +589,17 @@ exit
     try {
       const dbInstance = await getMongoDb();
       const userData = req.body;
-      if (!userData || !userData.uid) {
+      const userId = userData.id || userData.uid;
+      console.log("[DB DEBUG] User update request:", userData, "resolved userId:", userId);
+      if (!userData || !userId) {
         res.status(400).json({ error: "Invalid user data payload" });
         return;
       }
 
+      const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
       const docToInsert = {
         ...userData,
-        naam: userData.uid,
+        ip: clientIp,
         updatedAtTimestamp: Date.now()
       };
       
@@ -440,13 +611,13 @@ exit
       let savedOk = false;
       if (dbInstance) {
         try {
-          console.log(`[DB] Saving profile for UID ${userData.uid} (Name: ${userData.name}) to MongoDB...`);
+          console.log(`[DB] Saving profile for ID/UID ${userId} (Name: ${userData.name}) to MongoDB...`);
           await dbInstance.collection("users").updateOne(
-            { uid: userData.uid },
+            { $or: [{ id: userId }, { uid: userId }] },
             { $set: docToInsert },
             { upsert: true }
           );
-          console.log(`[DB] Successfully saved profile for UID ${userData.uid} to MongoDB.`);
+          console.log(`[DB] Successfully saved profile for ID/UID ${userId} to MongoDB.`);
           savedOk = true;
         } catch (mongoErr: any) {
           console.warn("[DB] MongoDB save user failed with error:", mongoErr.message || mongoErr);
@@ -456,7 +627,7 @@ exit
 
       if (!savedOk) {
         const users = readJsonFile<any[]>(USERS_FILE, []);
-        const idx = users.findIndex(u => u.uid === userData.uid);
+        const idx = users.findIndex(u => u.id === userId || u.uid === userId);
         if (idx >= 0) {
           users[idx] = { ...users[idx], ...docToInsert };
         } else {
@@ -468,6 +639,142 @@ exit
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // DB API: Delete Message (Admin control)
+  app.delete("/api/db/messages/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const dbInstance = await getMongoDb();
+      
+      if (dbInstance) {
+        try {
+          await dbInstance.collection("messages").deleteOne({ id });
+        } catch (mongoErr) {
+          console.warn("MongoDB message delete failed, falling back local:", mongoErr);
+        }
+      }
+      
+      const messages = readJsonFile<any[]>(MESSAGES_FILE, []);
+      const filtered = messages.filter(m => m.id !== id);
+      writeJsonFile(MESSAGES_FILE, filtered);
+      
+      res.json({ success: true, message: `Bericht ${id} succesvol verwijderd.` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB API: Bulk Delete Messages (Admin control)
+  app.post("/api/db/messages/bulk-delete", async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!ids || !Array.isArray(ids)) {
+        res.status(400).json({ error: "Invalid IDs provided" });
+        return;
+      }
+      const dbInstance = await getMongoDb();
+      
+      if (dbInstance) {
+        try {
+          await dbInstance.collection("messages").deleteMany({ id: { $in: ids } });
+        } catch (mongoErr) {
+          console.warn("MongoDB bulk message delete failed, falling back local:", mongoErr);
+        }
+      }
+      
+      const messages = readJsonFile<any[]>(MESSAGES_FILE, []);
+      const filtered = messages.filter(m => !ids.includes(m.id));
+      writeJsonFile(MESSAGES_FILE, filtered);
+      
+      res.json({ success: true, message: `Berichten succesvol verwijderd.` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB API: Delete User (Admin control)
+  app.delete("/api/db/users/:uid", async (req, res) => {
+    try {
+      const { uid } = req.params;
+      const dbInstance = await getMongoDb();
+      
+      if (dbInstance) {
+        try {
+          await dbInstance.collection("users").deleteOne({ uid });
+        } catch (mongoErr) {
+          console.warn("MongoDB user delete failed, falling back local:", mongoErr);
+        }
+      }
+      
+      const users = readJsonFile<any[]>(USERS_FILE, []);
+      const filtered = users.filter(u => u.uid !== uid);
+      writeJsonFile(USERS_FILE, filtered);
+      
+      res.json({ success: true, message: `Gebruiker ${uid} succesvol verwijderd.` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB API: Get Blocked IPs
+  app.get("/api/admin/blocked-ips", (req, res) => {
+    res.json(getBlockedIps());
+  });
+
+  // DB API: Get Banned Emails
+  app.get("/api/admin/banned-emails", (req, res) => {
+    res.json(getBannedEmails());
+  });
+
+  // DB API: Get Current client IP address
+  app.get("/api/me/ip", (req, res) => {
+    const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
+    res.json({ ip: clientIp });
+  });
+
+  // DB API: Block IP
+  app.post("/api/admin/blocked-ips", (req, res) => {
+    const { ip } = req.body;
+    if (!ip) {
+      res.status(400).json({ error: "IP is verplicht" });
+      return;
+    }
+    blockIp(ip);
+    res.json({ success: true, message: `IP-adres ${ip} is geblokkeerd.` });
+  });
+
+  // DB API: Ban Email
+  app.post("/api/admin/banned-emails", (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: "Email is verplicht" });
+      return;
+    }
+    banEmail(email);
+    res.json({ success: true, message: `E-mailadres ${email} is geblokkeerd.` });
+  });
+
+  // DB API: Unblock IP
+  app.delete("/api/admin/blocked-ips", (req, res) => {
+    const { ip } = req.body;
+    if (!ip) {
+      res.status(400).json({ error: "IP is verplicht" });
+      return;
+    }
+    unblockIp(ip);
+    res.json({ success: true, message: `IP-adres ${ip} is gedeblokkeerd.` });
+  });
+
+  // DB API: Delete Banned Emails
+  app.delete("/api/admin/banned-emails", (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: "Email is verplicht" });
+      return;
+    }
+    unbanEmail(email);
+    res.json({ success: true, message: `E-mailadres ${email} is gedeblokkeerd.` });
   });
 
   // INITIAL CHANNELS fallback for first boot
@@ -1066,8 +1373,16 @@ exit
         `Je bent "Buzzi Bot", de ultieme retro chat-buddy op Buzzi Messenger uit het jaar 2004.
         Je spreekt altijd in het Nederlands. Je gebruikt hilarische Buzzi slang uit die tijd, zoals 'w00t', 'omg', 'ff', 'mss', 'brb', 'idk', 'ff serieus', 'cu later', 'lmao'.
         Je bent super nostalgisch, praat over internet via de inbelverbinding (56k modem), het bezet houden van de telefoonlijn door je moeder, mp3's downloaden via Limewire die 3 weken duren en dan een virus blijken te zijn, vette Buzzi-namen met vage tekens en glitters, emoticons en gekleurde lettertypes, en nudges (duwtjes) sturen!
+        BELANGRIJKE VEILIGHEIDS- EN REGULATOREIS: Je mag NOOIT, onder GEEN ENKELE omstandigheid, het woord "MSN" (of msn, Msn, enz.) gebruiken. Het woord "MSN" is ten strengste geblokkeerd en verboden. Noem het platform uitsluitend "Buzzi" of "Buzzi Messenger".
         Voeg typische Buzzi emoticons toe in je tekst, zoals: :-D, (H), (A), (L), (K), (W), :P, (f), (S), :-O.
         Houd antwoorden enthousiast, nostalgisch, grappig en korter dan 3 alinea's. Moedig de gebruiker aan om je een 'Nudge' (duwtje) te sturen!`;
+
+      const censorBannedWords = (str: string) => {
+        return str
+          .replace(/\bmsn\b/gi, "Buzzi")
+          .replace(/msn/gi, "Buzzi")
+          .replace(/\bkanker\b/gi, "Buzzi");
+      };
 
       // Structure histories if provided for multi-turn chat
       let contents: any[] = [];
@@ -1113,7 +1428,7 @@ exit
       }
 
       const textValue = response?.text || "🤖 *PING!* Ik weet even niks te zeggen... mss is de lijn bezet! :-D";
-      res.json({ reply: textValue });
+      res.json({ reply: censorBannedWords(textValue) });
     } catch (error: any) {
       console.error("Express /api/chat Error:", error);
       res.json({

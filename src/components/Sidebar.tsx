@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect } from "react";
 import { Channel, Contact, StatusType } from "../types";
-import { Theme } from "../utils/themes";
 import { hiveAudio } from "../utils/audio";
 import { translateUI } from "../translations";
 import { 
@@ -147,7 +146,6 @@ interface SidebarProps {
   contacts: Contact[];
   activeId: string;
   activeType: "channel" | "dm";
-  activeTheme: Theme;
   onSelectChannel: (channelId: string) => void;
   onSelectDM: (contactId: string) => void;
   userEmail: string;
@@ -179,13 +177,12 @@ interface SidebarProps {
   isUserPremium?: boolean;
   onOpenPremiumModal?: () => void;
   onToggleBlockContact?: (contactId: string) => void;
+  isUserAnAdmin?: boolean;
 
   isSyncMusicEnabled?: boolean;
   onToggleSyncMusic?: () => void;
   siteLanguage?: string;
-  onOpenSettings?: () => void;
-  onOpenAdminPanel?: () => void;
-  onOpenProfileSettings?: () => void;
+  unreadCounts?: Record<string, number>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -193,7 +190,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   contacts,
   activeId,
   activeType,
-  activeTheme,
   onSelectChannel,
   onSelectDM,
   userEmail,
@@ -221,12 +217,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isUserPremium = false,
   onOpenPremiumModal,
   onToggleBlockContact,
+  isUserAnAdmin = false,
   isSyncMusicEnabled = false,
   onToggleSyncMusic,
   siteLanguage = "NL",
-  onOpenSettings,
-  onOpenAdminPanel,
-  onOpenProfileSettings
+  unreadCounts = {}
 }) => {
   const t = (key: string) => {
     return translateUI(siteLanguage, key);
@@ -560,7 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const offlineContacts = filteredContacts.filter(c => c.id !== "queen" && c.status === "offline");
 
   return (
-    <div className={`w-80 ${activeTheme.bgSidebar} ${activeTheme.textMain} flex flex-col h-full border-r border-[#6f8da5] select-none font-sans shadow-md`}>
+    <div className="w-80 bg-[#e4ecf7] text-slate-800 flex flex-col h-full border-r border-[#6f8da5] select-none font-sans shadow-md">
       <audio ref={audioRef} className="hidden" />
       {/* Buzzi Messenger Title Bar / Header Decoration */}
       <div className="bg-gradient-to-r from-[#1d6fa5] via-[#469cd2] to-[#1d6fa5] p-2.5 text-white flex items-center justify-between border-b border-[#0f4f7d] shadow-sm">
@@ -579,10 +574,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div className="flex items-center gap-1">
           {/* Classic small decoration tabs for minimize, maximize, close */}
-          {userEmail === 'prinsrobbin@gmail.com' && (
-            <span onClick={onOpenAdminPanel} className="w-4 h-4 rounded bg-[#f8cfcf]/50 border border-white/20 text-[9px] flex items-center justify-center text-sky-900 hover:bg-[#f8cfcf]/70 cursor-pointer" title="Admin">A</span>
-          )}
-          <span onClick={onOpenSettings} className="w-4 h-4 rounded bg-[#cfe3f8]/30 border border-white/20 text-[9px] flex items-center justify-center text-sky-100 hover:bg-[#cfe3f8]/50 cursor-pointer" title="Instellingen">⚙</span>
           <span className="w-4 h-4 rounded bg-[#cfe3f8]/30 border border-white/20 text-[9px] flex items-center justify-center text-sky-100 hover:bg-[#cfe3f8]/50 cursor-pointer">_</span>
           <span className="w-4 h-4 rounded bg-[#cfe3f8]/30 border border-white/20 text-[9px] flex items-center justify-center text-sky-100 hover:bg-[#cfe3f8]/50 cursor-pointer">□</span>
           <span className="w-4 h-4 rounded bg-red-600/80 border border-red-500/30 text-[9px] flex items-center justify-center text-white hover:bg-red-600 cursor-pointer">X</span>
@@ -590,7 +581,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Profile Box Area (Classic Buzzi top panel with Display Picture Frame) */}
-      <div className={`p-4 ${activeTheme.bgHeader} border-b border-white/10 flex gap-3.5 relative overflow-hidden`}>
+      <div className="p-4 bg-gradient-to-b from-[#f2f7fc] to-[#d6e5f4] border-b border-[#9ebcd1] flex gap-3.5 relative overflow-hidden">
         {/* Buzzi light glare shine background effect */}
         <div className="absolute inset-0 bg-[#ffffff]/25 pointer-events-none transform -skew-y-12 origin-top-left scale-150" />
 
@@ -598,10 +589,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="relative group flex-shrink-0 z-10">
           <div 
             onClick={() => {
-              onOpenProfileSettings?.();
+              setIsAvatarSelectorOpen(true);
               hiveAudio.playHoneyPop();
             }}
-            className="w-14 h-14 bg-white p-0.5 rounded-md border-2 border-[#86a8cf] shadow-md flex items-center justify-center overflow-hidden hover:scale-105 transition-all cursor-pointer"            title="Klik om weergaveafbeelding te selecteren of te dobbelen"
+            className="w-14 h-14 bg-white p-0.5 rounded-md border-2 border-[#86a8cf] shadow-md flex items-center justify-center overflow-hidden hover:scale-105 transition-all cursor-pointer"
+            title="Klik om weergaveafbeelding te selecteren of te dobbelen"
           >
             {isCustomAvatar(userAvatar) ? (
               <img src={userAvatar} alt="Avatar" className="w-full h-full object-cover rounded-sm" referrerPolicy="no-referrer" />
@@ -1047,10 +1039,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                       
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-1 w-full">
                           <span className="text-xs font-bold text-slate-800 truncate block">
-                            {contact.name} <span className="text-sky-600 text-[10px] font-normal font-mono">({contact.email.split("#pwd_")[0]})</span>
+                            {contact.name} {isUserAnAdmin && <span className="text-sky-600 text-[10px] font-normal font-mono">({contact.email.split("#pwd_")[0]})</span>}
                           </span>
+                          {unreadCounts[contact.id] > 0 && (
+                            <span className="bg-[#FF5A00] text-white font-mono rounded-full text-[9px] px-1.5 py-0.5 leading-none shrink-0 font-extrabold animate-pulse shadow-sm min-w-[16px] text-center" title={`${unreadCounts[contact.id]} ongelezen berichten`}>
+                              {unreadCounts[contact.id]}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10.5px] text-slate-400 italic truncate leading-none mt-0.5">
                           &ldquo;{contact.personalMessage}&rdquo;
@@ -1105,15 +1102,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                       
                       <div className="flex-1 min-w-0 pr-1">
-                        <span className={`text-xs font-bold truncate block flex items-center gap-1 ${isBlocked ? "line-through text-slate-400" : "text-slate-800"}`}>
-                          {(contact.name?.toLowerCase().includes("robbin") || contact.email?.toLowerCase().includes("robbin") || contact.name?.toLowerCase().includes("admin")) && (
-                            <span className="text-amber-500 animate-pulse text-[10px]" title="Buzzi Systeem Administrator 👑">👑</span>
+                        <div className="flex items-center justify-between gap-1 w-full">
+                          <span className={`text-xs font-bold truncate block flex items-center gap-1 ${isBlocked ? "line-through text-slate-400" : "text-slate-800"}`}>
+                            {(contact.name?.toLowerCase().includes("robbin") || contact.email?.toLowerCase().includes("robbin") || contact.name?.toLowerCase().includes("admin")) && (
+                              <span className="text-amber-500 animate-pulse text-[10px]" title="Buzzi Systeem Administrator 👑">👑</span>
+                            )}
+                            <span>{contact.name}</span>
+                            {isBlocked && (
+                              <span className="text-[8px] bg-red-100 text-red-700 px-1 rounded-sm border border-red-200 font-extrabold shrink-0 uppercase tracking-wide">Geblokkeerd</span>
+                            )}
+                          </span>
+                          {unreadCounts[contact.id] > 0 && (
+                            <span className="bg-[#FF5A00] text-white font-mono rounded-full text-[9px] px-1.5 py-0.5 leading-none shrink-0 font-extrabold animate-pulse shadow-sm min-w-[16px] text-center" title={`${unreadCounts[contact.id]} ongelezen berichten`}>
+                              {unreadCounts[contact.id]}
+                            </span>
                           )}
-                          <span>{contact.name}</span>
-                          {isBlocked && (
-                            <span className="text-[8px] bg-red-100 text-red-700 px-1 rounded-sm border border-red-200 font-extrabold shrink-0 uppercase tracking-wide">Geblokkeerd</span>
-                          )}
-                        </span>
+                        </div>
                         
                         <p className={`text-[10.5px] italic truncate leading-none mt-0.5 ${isBlocked ? "text-slate-300" : "text-slate-400"}`}>
                           &ldquo;{contact.personalMessage}&rdquo;
@@ -1197,13 +1201,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span className="absolute -bottom-1 -right-1 leading-none">{getStatusIcon("offline")}</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs text-slate-600 font-medium truncate block flex items-center gap-1">
-                          {(contact.name?.toLowerCase().includes("robbin") || contact.email?.toLowerCase().includes("robbin") || contact.name?.toLowerCase().includes("admin")) && (
-                            <span className="text-amber-500 text-[10px]" title="Buzzi Systeem Administrator 👑 font-bold">👑</span>
+                        <div className="flex items-center justify-between gap-1 w-full">
+                          <span className="text-xs text-slate-600 font-medium truncate block flex items-center gap-1">
+                            {(contact.name?.toLowerCase().includes("robbin") || contact.email?.toLowerCase().includes("robbin") || contact.name?.toLowerCase().includes("admin")) && (
+                              <span className="text-amber-500 text-[10px]" title="Buzzi Systeem Administrator 👑 font-bold">👑</span>
+                            )}
+                            <span>{contact.name}</span>
+                          </span>
+                          {unreadCounts[contact.id] > 0 && (
+                            <span className="bg-[#FF5A00] text-white font-mono rounded-full text-[9px] px-1.5 py-0.5 leading-none shrink-0 font-extrabold animate-pulse shadow-sm min-w-[16px] text-center opacity-80 group-hover:opacity-100" title={`${unreadCounts[contact.id]} ongelezen berichten`}>
+                              {unreadCounts[contact.id]}
+                            </span>
                           )}
-                          <span>{contact.name}</span>
-                        </span>
-                        <p className="text-[10px] text-slate-400 truncate leading-none mt-0.5">({contact.email.split("#pwd_")[0]})</p>
+                        </div>
+                        {isUserAnAdmin && <p className="text-[10px] text-slate-400 truncate leading-none mt-0.5">({contact.email.split("#pwd_")[0]})</p>}
                       </div>
                     </button>
 
@@ -1266,9 +1277,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <span className="text-lg leading-none">👥</span>
                     <div className="flex-1 min-w-0">
-                      <span className="text-xs font-bold text-[#1d5c8a] truncate block">
-                        #{channel.name}
-                      </span>
+                      <div className="flex items-center justify-between gap-1 w-full">
+                        <span className="text-xs font-bold text-[#1d5c8a] truncate block">
+                          #{channel.name}
+                        </span>
+                        {unreadCounts[channel.id] > 0 && (
+                          <span className="bg-[#FF5A00] text-white font-mono rounded-full text-[9px] px-1.5 py-0.5 leading-none shrink-0 font-extrabold animate-pulse shadow-sm min-w-[16px] text-center" title={`${unreadCounts[channel.id]} ongelezen berichten`}>
+                            {unreadCounts[channel.id]}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-400 truncate leading-none mt-0.5">
                         {channel.description}
                       </p>

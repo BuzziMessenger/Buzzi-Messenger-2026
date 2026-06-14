@@ -5,7 +5,6 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Message, Contact, Channel } from "../types";
-import { Theme } from "../utils/themes";
 import { motion, AnimatePresence } from "motion/react";
 import { translateUI } from "../translations";
 import { 
@@ -34,7 +33,6 @@ import { hiveAudio } from "../utils/audio";
 import { WebcamCall } from "./WebcamCall";
 import { ChatGameDuel } from "./ChatGameDuel";
 import { FileTransfer } from "./FileTransfer";
-import { VoiceMessageRecorder } from "./VoiceMessageRecorder";
 
 const isCustomAvatar = (avatar: string) => {
   if (!avatar) return false;
@@ -46,7 +44,6 @@ interface ChatAreaProps {
   activeType: "channel" | "dm";
   activeChannel?: Channel;
   activeContact?: Contact;
-  activeTheme: Theme;
   messages: Message[];
   isTyping: boolean;
   onSendMessage: (
@@ -69,8 +66,17 @@ interface ChatAreaProps {
   isBlocked?: boolean;
   onToggleBlock?: () => void;
   isUserPremium?: boolean;
+  isUserAnAdmin?: boolean;
   onOpenPremiumModal?: () => void;
   siteLanguage?: string;
+  onDeleteMessage?: (id: string) => void;
+  onBlockIp?: (ip: string) => void;
+  onUnblockIp?: (ip: string) => void;
+  blockedIps?: string[];
+  autoStartCallId?: string;
+  autoStartGameId?: string;
+  autoStartGameType?: string;
+  onClearAutoStart?: () => void;
 }
 
 const BUZZI_EMOTICONS = [
@@ -153,12 +159,9 @@ const WINKS_LIST = [
   { id: "heartbreaker", title: "Buzzi Heartbreaker", icon: "💔", desc: "Een pijnlijk gebroken hart dat over je scherm barst!" },
   { id: "matrix", title: "Retro Matrix Rain", icon: "👾", desc: "Hack het chatvenster met vallende groene cryptische Buzzi matrixcodes!" },
   { id: "bee", title: "Buzzi Honingbij", icon: "🐝", desc: "Een maffe bij die zoemend het scherm vult met zoete glinsterhoning!" },
-  { id: "party", title: "Party Pooper", icon: "🎉", desc: "Een feestelijke knal met slingers en confetti!" },
-  { id: "rocket", title: "Buzzi Raket", icon: "🚀", desc: "Lanceer een raket dwars door de chat!" },
-  { id: "sun", title: "Zonnestraal", icon: "☀️", desc: "Laat de zon schijnen in je chat venster!" },
-  { id: "rainbow", title: "Regenboog Vibe", icon: "🌈", desc: "Een prachtige regenboog die over je chatvenster kleurt!" },
-  { id: "bubble", title: "Bellenblaas", icon: "🫧", desc: "Overal vrolijke bellen die kapot spatten!" },
-  { id: "confetti", title: "Confetti Douche", icon: "🎊", desc: "Een enorme explosie van vrolijke confetti!" }
+  { id: "heartbox", title: "Buzzi Cadeaudoos", icon: "🎁", desc: "Open een mysterieus Buzzi-cadeautje vol hartjes!" },
+  { id: "star", title: "Glinster Ster", icon: "🌟", desc: "Laat je Buzzi-chat oplichten met een glinsterende sterrenregen!" },
+  { id: "sunglasses", title: "Cool Buzzi", icon: "😎", desc: "Een Buzzi-gezichtje met de coolste zwarte zonnebril ooit!" }
 ];
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -166,7 +169,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   activeType,
   activeChannel,
   activeContact,
-  activeTheme,
   messages,
   isTyping,
   onSendMessage,
@@ -178,17 +180,87 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isBlocked = false,
   onToggleBlock,
   isUserPremium = false,
+  isUserAnAdmin = false,
   onOpenPremiumModal,
-  siteLanguage = "NL"
+  siteLanguage = "NL",
+  onDeleteMessage,
+  onBlockIp,
+  onUnblockIp,
+  blockedIps = [],
+  autoStartCallId,
+  autoStartGameId,
+  autoStartGameType,
+  onClearAutoStart
 }) => {
   const t = (key: string) => {
     return translateUI(siteLanguage, key);
   };
 
+  const isViewingUserAdmin = isUserAnAdmin;
+
   const [inputText, setInputText] = useState("");
   const [isShaking, setIsShaking] = useState(false);
   const [showEmoticonPicker, setShowEmoticonPicker] = useState(false);
   const [showWinksPicker, setShowWinksPicker] = useState(false);
+  
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const lastUserScrollTimeRef = useRef<number>(0);
+
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    if (!isNearBottom) {
+      setIsUserScrolledUp(true);
+      lastUserScrollTimeRef.current = Date.now();
+    } else {
+      setIsUserScrolledUp(false);
+    }
+  };
+
+  const handleExportHistory = () => {
+    if (!messages || messages.length === 0) {
+      alert("Er is nog geen chatgeschiedenis om te exporteren!");
+      return;
+    }
+    
+    let content = `====================================================\n`;
+    content += `BUZZI MESSENGER - CHATGESCHIEDENIS EXPORT\n`;
+    content += `Geëxporteerd op: ${new Date().toLocaleString()}\n`;
+    content += `Chattype: ${activeType === "channel" ? "Groepskanaal" : "Persoonlijk Gesprek"}\n`;
+    content += `Naam: ${activeType === "channel" ? `#${activeChannel?.name}` : activeContact?.name}\n`;
+    content += `====================================================\n\n`;
+    
+    messages.forEach((msg) => {
+      const time = msg.timestamp || new Date().toLocaleTimeString();
+      if (msg.isBuzz) {
+        content += `[${time}] *** DUWTJE / NUDGE VERSTUURD DOOR ${msg.senderName} ***\n`;
+      } else if (msg.isGameDuel) {
+        content += `[${time}] *** GAME DUEL: ${msg.senderName} heeft je uitgenodigd voor een duel ***\n`;
+      } else if (msg.fileTransfer) {
+        content += `[${time}] ${msg.senderName}: [Bestand: ${msg.fileTransfer.name} (${msg.fileTransfer.size})] - ${msg.fileTransfer.dataUrl ? "Heeft bestand doorgestuurd" : "Bestand ontvangen"}\n`;
+      } else {
+        content += `[${time}] ${msg.senderName}: ${msg.text}\n`;
+      }
+    });
+    
+    content += `\n====================================================\n`;
+    content += `Bedankt voor het chatten op Buzzi Messenger! 🐝\n`;
+    content += `====================================================\n`;
+    
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `buzzi-chat-${activeType === "channel" ? `groep-${activeChannel?.name}` : activeContact?.name || "gesprek"}-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    hiveAudio.playNotification();
+  };
   const [activeWink, setActiveWink] = useState<string | null>(null);
   const [showWinkClose, setShowWinkClose] = useState(true);
   const lastActiveId = useRef<string | null>(null);
@@ -207,6 +279,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setCurrentGameId(undefined);
   }, [activeId]);
 
+  useEffect(() => {
+    if (autoStartCallId) {
+      setShowWebcamCall(true);
+      setShowGameDuel(false);
+      onClearAutoStart?.();
+    }
+  }, [autoStartCallId, onClearAutoStart]);
+
+  useEffect(() => {
+    if (autoStartGameId) {
+      setCurrentGameId(autoStartGameId);
+      setShowGameDuel(true);
+      setShowWebcamCall(false);
+      onClearAutoStart?.();
+    }
+  }, [autoStartGameId, onClearAutoStart]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -216,22 +305,53 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       : `${(file.size / 1024).toFixed(0)} KB`;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result as string;
-      // Triggers MSN file transfer card in history logs
-      onSendMessage(
-        `*Verstuurt bestand: ${file.name} (${formattedSize})*`,
-        false,
-        false,
-        undefined,
-        {
-          name: file.name,
-          size: formattedSize,
-          progress: 0,
-          status: "sending",
-          dataUrl: dataUrl
-        }
-      );
+      const fileId = `file-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      try {
+        // Upload the actual heavy data URL to the dedicated file endpoint
+        await fetch("/api/db/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: fileId,
+            name: file.name,
+            dataUrl: dataUrl
+          })
+        });
+
+        // Send chat message with the safe endpoint reference relative to this server
+        onSendMessage(
+          `*Verstuurt bestand: ${file.name} (${formattedSize})*`,
+          false,
+          false,
+          undefined,
+          {
+            name: file.name,
+            size: formattedSize,
+            progress: 0,
+            status: "sending",
+            dataUrl: `/api/db/files/${fileId}`
+          }
+        );
+      } catch (err) {
+        console.warn("Failed to upload file to backend storage, falling back to local memory dataUrl:", err);
+        // Fallback to sending inline dataUrl if upload failed as a worst-case backup
+        onSendMessage(
+          `*Verstuurt bestand: ${file.name} (${formattedSize})*`,
+          false,
+          false,
+          undefined,
+          {
+            name: file.name,
+            size: formattedSize,
+            progress: 0,
+            status: "sending",
+            dataUrl: dataUrl
+          }
+        );
+      }
     };
     reader.readAsDataURL(file);
 
@@ -405,10 +525,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages unless user scrolled up recently
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    const timeSinceLastScrollUp = Date.now() - lastUserScrollTimeRef.current;
+    const lastMsg = messages[messages.length - 1];
+    const isMyMessage = lastMsg && (lastMsg.senderId === "me" || (myUserId && lastMsg.senderId === myUserId));
+    
+    if (isUserScrolledUp && timeSinceLastScrollUp < 60000 && !isMyMessage) {
+      return;
+    }
+    
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, isUserScrolledUp]);
 
   // Monitor incoming messages for Winks to trigger the full screen play and synth sound!
   useEffect(() => {
@@ -563,7 +694,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   return (
     <motion.div 
-      className={`flex-1 ${activeTheme.bgMain} ${activeTheme.textMain} flex flex-col h-full relative`}
+      className="flex-1 bg-white flex flex-col h-full relative"
       animate={isShaking ? {
         x: [0, -12, 12, -9, 9, -6, 6, -3, 3, 0],
         y: [0, 6, -6, 4, -4, 3, -3, 0],
@@ -605,6 +736,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-shrink-0">
+          <button
+            onClick={handleExportHistory}
+            className="bg-sky-100 hover:bg-sky-200 text-sky-950 text-[10px] font-bold px-2.5 py-1 rounded border border-[#abc4df] flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+            title="Sla dit gesprek op als tekstbestand"
+          >
+            📥 Chat exporteren
+          </button>
+
           {activeType === "dm" && onToggleBlock && (
             <button
               onClick={onToggleBlock}
@@ -649,6 +788,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               type="button"
               onClick={() => {
                 const callId = `call-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                if (!myUserId || myUserId.startsWith("guest")) {
+                  alert("Videobellen en spellen spelen is alleen beschikbaar voor ingelogde gebruikers.");
+                  return;
+                }
                 onSendMessage(
                   "📹 Wil een videoverbinding met je starten!",
                   false,
@@ -696,6 +839,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (!myUserId || myUserId.startsWith("guest")) {
+                  alert("Videobellen en spellen spelen is alleen beschikbaar voor ingelogde gebruikers.");
+                  return;
+                }
                 setShowGameDuel(true);
                 setShowWebcamCall(false);
                 hiveAudio.playHoneyPop();
@@ -874,14 +1021,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       <div className="flex-1 flex overflow-hidden bg-slate-50 relative">
 
         {/* Column 1: Messaging Feed */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
+        >
           <div className="text-[10px] text-slate-400 text-center select-none font-sans py-1 border-b border-dashed border-slate-100">
             Gespreksbeveiliging is actief. Je chats worden beveiligd bewaard.
           </div>
 
           <AnimatePresence initial={false}>
             {messages.map((msg) => {
-              const isMe = msg.senderId === "me" || (myUserId && msg.senderId === myUserId && msg.senderName === myDisplayName);
+              const isMe = msg.senderId === "me" || (myUserId && msg.senderId === myUserId);
               const isQueen = msg.senderId === "queen";
               const isBuzz = msg.isBuzz;
 
@@ -952,7 +1103,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               }
 
               // Custom Retro Buzzi Webcampopp calling Invitation Card
-              if (msg.isCallInvite) {
+              if (msg.isCallInvite && msg.senderName !== "Buzzi Bot") {
                 return (
                   <motion.div
                     key={msg.id}
@@ -1000,7 +1151,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   className="space-y-0.5 leading-relaxed font-sans"
                 >
                   {/* Buzzi style message header: "Robbin zegt (12:04):" */}
-                  <div className="text-xs select-none flex items-center gap-1 pt-1">
+                  <div className="text-xs select-none flex items-center gap-1 pt-1 flex-wrap">
                     <span className={`font-bold inline-flex items-center gap-1.5 ${isMe ? "text-slate-500" : isQueen ? "text-sky-700" : "text-emerald-700"}`}>
                       {(msg.senderName?.toLowerCase().includes("robbin") || msg.senderName?.toLowerCase().includes("admin") || msg.senderName?.toLowerCase().includes("operator")) && (
                         <span className="text-amber-500 animate-pulse text-[11px]" title="Buzzi Systeem Administrator 👑">👑</span>
@@ -1008,6 +1159,62 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       {msg.senderName} zegt:
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">({msg.timestamp})</span>
+                    
+                    {msg.ip && (
+                      <span className="inline-flex items-center gap-1 select-none">
+                        <span className={`text-[8.5px] font-mono px-1 rounded border leading-none py-0.5 ${
+                          blockedIps.includes(msg.ip)
+                            ? "text-red-700 bg-red-100 border-red-300 font-bold"
+                            : "text-blue-700 bg-blue-50 border-blue-200"
+                        }`} title="Geregistreerd IP-adres van deze afzender">
+                          IP: {msg.ip} {blockedIps.includes(msg.ip) && "⚠️ (GEBLOKKEERD)"}
+                        </span>
+                        
+                        {isViewingUserAdmin && msg.senderId !== myUserId && (
+                          blockedIps.includes(msg.ip) ? (
+                            <button
+                              onClick={() => {
+                                if (onUnblockIp) onUnblockIp(msg.ip!);
+                              }}
+                              className="text-emerald-700 hover:text-emerald-800 font-extrabold ml-1.5 text-[8px] cursor-pointer hover:underline bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 leading-none"
+                              title="Deblokkeer dit IP-adres"
+                            >
+                              🟢 Vrijgeven
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Weet je zeker dat je het IP-adres ${msg.ip} wilt blokkeren? De gebruiker kan dan geen berichten meer sturen.`)) {
+                                  if (onBlockIp) onBlockIp(msg.ip!);
+                                }
+                              }}
+                              className="text-red-700 hover:text-red-800 font-extrabold ml-1.5 text-[8px] cursor-pointer hover:underline bg-red-50 border border-red-200 rounded px-1 py-0.5 leading-none"
+                              title="Blokkeer dit IP-adres"
+                            >
+                              🚫 IP Blokeren
+                            </button>
+                          )
+                        )}
+                      </span>
+                    )}
+
+                    {/* Operator quick delete button */}
+                    {(myDisplayName?.toLowerCase().includes("robbin") || 
+                      myDisplayName?.toLowerCase().includes("admin") || 
+                      myDisplayName?.toLowerCase().includes("operator") || 
+                      myDisplayName === "Robbin") && msg.id && onDeleteMessage && (
+                      <button 
+                        onClick={() => {
+                          if (window.confirm("Weet je zeker dat je dit chatbericht wilt verwijderen?")) {
+                            onDeleteMessage(msg.id);
+                          }
+                        }}
+                        className="text-red-600 hover:text-red-700 font-extrabold ml-1.5 text-[9.5px] cursor-pointer hover:underline flex items-center gap-0.5 bg-red-50 border border-red-200 rounded px-1"
+                        title="Verwijder dit bericht permanent"
+                      >
+                        ❌ Verwijder
+                      </button>
+                    )}
                   </div>
 
                   {/* Buzzi style message content text inside window */}
@@ -1856,8 +2063,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </button>
 
           {/* Chat input form */}
-          <div className="relative flex-1 flex items-center gap-2">
-            <VoiceMessageRecorder onSend={(dataUrl) => onSendMessage("*Spraakbericht*", false, false, undefined, { name: "spraakbericht.webm", dataUrl: dataUrl, status: "sent" })} />
+          <div className="relative flex-1">
             <input
               type="text"
               value={inputText}

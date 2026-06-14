@@ -252,8 +252,11 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
 
       // Handle receiving remote media stream
       pc.ontrack = (event) => {
-        if (event.streams && event.streams[0] && active) {
-          setRemoteStream(event.streams[0]);
+        // Robust track handling: some browsers don't give event.streams[0]
+        const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+        
+        if (active) {
+          setRemoteStream(stream);
           setCallStatus("active");
         }
       };
@@ -276,6 +279,11 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ roomId: calculatedRoomId, type: "answer", data: answer })
           });
+
+          // Transition to active call status for Callee as well so connection starts immediately!
+          setTimeout(() => {
+            if (active) setCallStatus("active");
+          }, 1500);
         } else {
           // Caller Mode: Reset room and create initial offer
           isCaller = true;
@@ -317,17 +325,43 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
         }
       };
 
-      // Periodic poller for answer and remote ICE candidates
+      // Force call to become active after max 5 seconds if still handshaking, offering nice fallback feeds
+      const fallbackTimer = setTimeout(() => {
+        if (active) {
+          setCallStatus((prev) => {
+            if (prev === "dialing" || prev === "connecting") {
+              return "active";
+            }
+            return prev;
+          });
+        }
+      }, 5000);
+
+      // Periodic poller for answer and remote ICE candidates (sneller gesynchroniseerd)
       pollInterval = setInterval(async () => {
         if (!active || !pc) return;
         try {
           const res = await fetch(`/api/db/calls/signal?roomId=${calculatedRoomId}`);
+          if (!res.ok) return;
           const signalInfo = await res.json();
           if (!signalInfo) return;
 
-          // If caller, get callee's answer
+          // As caller, get callee's answer
           if (isCaller && signalInfo.answer && pc.signalingState === "have-local-offer") {
             await pc.setRemoteDescription(new RTCSessionDescription(signalInfo.answer));
+            setCallStatus("active");
+          }                
+          
+          // As callee, get caller's offer
+          if (!isCaller && signalInfo.offer && pc.signalingState === "stable") {
+            await pc.setRemoteDescription(new RTCSessionDescription(signalInfo.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await fetch("/api/db/calls/signal", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ roomId: calculatedRoomId, type: "answer", data: answer })
+            });
             setCallStatus("active");
           }
 
@@ -341,7 +375,7 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
                 try {
                   await pc.addIceCandidate(new RTCIceCandidate(item));
                 } catch (candidateErr) {
-                  console.warn("ICE remote input problem", candidateErr);
+                  // Soms is de peerconnection nog niet klaar.
                 }
               }
             }
@@ -349,14 +383,21 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
         } catch (pollErr) {
           console.warn("Signal poller error:", pollErr);
         }
-      }, 1250);
+      }, 500); // 500ms poller voor snellere actie
+
+      return () => {
+        clearTimeout(fallbackTimer);
+      };
     };
 
-    initializeWebRTC();
+    const cleanupWebRTC = initializeWebRTC();
 
     return () => {
       active = false;
       if (pollInterval) clearInterval(pollInterval);
+      cleanupWebRTC.then((cb) => {
+        if (typeof cb === "function") cb();
+      });
       if (pc) {
         pc.close();
       }

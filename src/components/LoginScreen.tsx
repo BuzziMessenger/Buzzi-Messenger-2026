@@ -4,7 +4,6 @@ import { hiveAudio } from "../utils/audio";
 import { LegalModal } from "./LegalModal";
 import { BuzziLogo } from "./BuzziLogo";
 import { translateUI } from "../translations";
-import { Theme } from "../utils/themes";
 
 const isCustomAvatar = (avatar: string) => {
   if (!avatar) return false;
@@ -14,7 +13,6 @@ const isCustomAvatar = (avatar: string) => {
 interface LoginScreenProps {
   onLoginSuccess: (name: string, email: string) => void;
   siteLanguage?: string;
-  activeTheme: Theme;
 }
 
 // Client-side simple string hashing function to prevent plaintext password lookup in users list
@@ -316,7 +314,7 @@ export function LoginScreen({ onLoginSuccess, siteLanguage = "NL" }: LoginScreen
   };
 
   return (
-    <div className={`flex flex-col lg:flex-row items-center justify-center min-h-screen w-screen ${activeTheme.bgMain} ${activeTheme.textMain} font-sans px-4 py-8 select-none gap-8 relative overflow-x-hidden`}>
+    <div className="flex flex-col lg:flex-row items-center justify-center min-h-screen w-screen bg-gradient-to-b from-[#4A86E8] via-[#0F55C9] to-[#012269] font-sans px-4 py-8 select-none gap-8 relative overflow-x-hidden">
       
       {/* Authentic Retro Buzzi Container */}
       <div className="w-full max-w-[420px] bg-gradient-to-b from-[#F2F6FB] via-[#E1ECF7] to-[#D5E5F4] rounded-2xl shadow-2xl border-2 border-[#1E56A0] overflow-hidden flex flex-col relative animate-fade-in z-10 shrink-0">
