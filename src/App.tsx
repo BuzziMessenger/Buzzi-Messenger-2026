@@ -1417,17 +1417,25 @@ exit
 
   // Periodic heartbeat to keep client active status fresh on the server
   useEffect(() => {
+useEffect(() => {
+    // Alleen uitvoeren als de gebruiker bekend is en profiel klaar is
     if (!currentUser || !profileInitialized) return;
 
-    // Send instant update on startup or logins
+    // 1. Eénmalige update bij inloggen
     updateProfileInDatabase({});
 
+    // 2. Pulse heartbeat (verhoog naar 60 seconden om je DB te sparen)
     const interval = setInterval(() => {
+      // Optioneel: check hier of er echt wijzigingen zijn in de state
+      // voordat je de fetch doet, of stuur alleen een 'ping'.
       updateProfileInDatabase({});
-    }, 8000); // 8 seconds pulse
+    }, 60000); 
 
     return () => clearInterval(interval);
-  }, [currentUser, profileInitialized, userDisplayName, userAvatar, userStatus, userPersonalMessage, userListeningTo]);
+    
+    // VERWIJDER ALLE STATE VARIABELEN UIT DEZE ARRAY
+    // Hij hoeft alleen te reageren als currentUser of de initialisatie verandert
+  }, [currentUser, profileInitialized]);
 
   const visibleChannels = channels;
 
