@@ -159,6 +159,8 @@ const WINKS_LIST = [
   { id: "heartbreaker", title: "Buzzi Heartbreaker", icon: "💔", desc: "Een pijnlijk gebroken hart dat over je scherm barst!" },
   { id: "matrix", title: "Retro Matrix Rain", icon: "👾", desc: "Hack het chatvenster met vallende groene cryptische Buzzi matrixcodes!" },
   { id: "bee", title: "Buzzi Honingbij", icon: "🐝", desc: "Een maffe bij die zoemend het scherm vult met zoete glinsterhoning!" },
+  { id: "rocket", title: "Raketlancering", icon: "🚀", desc: "Lanceer een raket naar de ruimte en laat Buzzi chatten met sterren!" },
+  { id: "robot", title: "Robot Dans", icon: "🤖", desc: "Een futuristische robot die losgaat op de dansvloer!" },
   { id: "heartbox", title: "Buzzi Cadeaudoos", icon: "🎁", desc: "Open een mysterieus Buzzi-cadeautje vol hartjes!" },
   { id: "star", title: "Glinster Ster", icon: "🌟", desc: "Laat je Buzzi-chat oplichten met een glinsterende sterrenregen!" },
   { id: "sunglasses", title: "Cool Buzzi", icon: "😎", desc: "Een Buzzi-gezichtje met de coolste zwarte zonnebril ooit!" }
@@ -603,6 +605,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         hiveAudio.playMatrixWink();
       } else if (lastMsg.winkId === "bee") {
         hiveAudio.playBeeWink();
+      } else if (lastMsg.winkId === "rocket") {
+        hiveAudio.playRocketWink();
+      } else if (lastMsg.winkId === "robot") {
+        hiveAudio.playRobotWink();
       }
 
       setShowWinkClose(true);
@@ -2028,6 +2034,42 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   </div>
                 </motion.div>
               </div>
+            )}
+            
+            {/* Rocket Launch Wink */}
+            {activeWink === "rocket" && (
+              <div className="absolute inset-0 bg-sky-950/20 flex flex-col items-center justify-center pointer-events-auto overflow-hidden select-none animate-fade-in">
+                <motion.div
+                  initial={{ y: 500, scale: 0.5 }}
+                  animate={{ y: -500, scale: 1 }}
+                  transition={{ duration: 2, ease: "easeIn" }}
+                  className="text-[120px] filter drop-shadow-[0_0_20px_rgba(255,255,255,0.7)]"
+                >
+                  🚀
+                </motion.div>
+                <div className="text-white font-black text-xl animate-pulse mt-4">
+                  *BLAST-OFF!*
+                </div>
+              </div>
+            )}
+
+            {/* Robot Dans Wink */}
+            {activeWink === "robot" && (
+                <div className="absolute inset-0 bg-slate-800/80 flex flex-col items-center justify-center pointer-events-auto overflow-hidden select-none animate-fade-in">
+                    <motion.div
+                      animate={{ 
+                        rotate: [0, -10, 10, -10, 0],
+                        scale: [1, 1.2, 1]
+                      }}
+                      transition={{ repeat: Infinity, duration: 0.5 }}
+                      className="text-[140px]"
+                    >
+                      🤖
+                    </motion.div>
+                    <div className="text-emerald-400 font-mono font-black text-2xl animate-bounce mt-4">
+                      *ROBOT DANCE!*
+                    </div>
+                </div>
             )}
           </div>
         )}

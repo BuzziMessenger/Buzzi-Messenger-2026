@@ -252,10 +252,12 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
 
       // Handle receiving remote media stream
       pc.ontrack = (event) => {
+        console.log("WebRTC: Remote track received", event);
         // Robust track handling: some browsers don't give event.streams[0]
         const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
         
         if (active) {
+          console.log("WebRTC: Setting remote stream");
           setRemoteStream(stream);
           setCallStatus("active");
         }
@@ -264,27 +266,33 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
       let isCaller = false;
       try {
         setCallStatus("connecting");
+        console.log("WebRTC: Fetching signal data", calculatedRoomId);
         const res = await fetch(`/api/db/calls/signal?roomId=${calculatedRoomId}`);
         const signalData = await res.json();
+        console.log("WebRTC: Signal data received", signalData);
         
         if (signalData && signalData.offer) {
+          console.log("WebRTC: Callee Mode - Setting offer");
           // Callee Mode: Set offer and create answer
           isCaller = false;
           await pc.setRemoteDescription(new RTCSessionDescription(signalData.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          console.log("WebRTC: Created answer", answer);
 
           await fetch("/api/db/calls/signal", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ roomId: calculatedRoomId, type: "answer", data: answer })
           });
+          console.log("WebRTC: Answer posted");
 
           // Transition to active call status for Callee as well so connection starts immediately!
           setTimeout(() => {
             if (active) setCallStatus("active");
           }, 1500);
         } else {
+          console.log("WebRTC: Caller Mode - Creating offer");
           // Caller Mode: Reset room and create initial offer
           isCaller = true;
           await fetch("/api/db/calls/signal", {
@@ -295,20 +303,23 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
+          console.log("WebRTC: Created offer", offer);
 
           await fetch("/api/db/calls/signal", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ roomId: calculatedRoomId, type: "offer", data: offer })
           });
+          console.log("WebRTC: Offer posted");
         }
       } catch (err) {
-        console.warn("WebRTC Initial handshake failed:", err);
+        console.error("WebRTC Initial handshake failed:", err);
       }
 
       // Candidate handling
       pc.onicecandidate = (event) => {
         if (event.candidate && active) {
+          console.log("WebRTC: ICE candidate gathered", event.candidate);
           const candStr = JSON.stringify(event.candidate);
           if (!localCandidatesUploaded.includes(candStr)) {
             localCandidatesUploaded.push(candStr);

@@ -13,6 +13,7 @@ import { LoginScreen } from "./components/LoginScreen";
 import { Minesweeper } from "./components/Minesweeper";
 import { LegalModal } from "./components/LegalModal";
 import { AndroidInstallModal } from "./components/AndroidInstallModal";
+import { SupportKofi } from "./components/SupportKofi";
 import { motion, AnimatePresence } from "motion/react";
 import { translateUI } from "./translations";
 
@@ -272,6 +273,7 @@ export default function App() {
   const [isInviteExpanded, setIsInviteExpanded] = useState(false);
   const [isAppsExpanded, setIsAppsExpanded] = useState(false);
   const [isSoundSchemeExpanded, setIsSoundSchemeExpanded] = useState(false); // Default collapsed
+  const [isSupportBuzziExpanded, setIsSupportBuzziExpanded] = useState(false);
   const [isMonetizationExpanded, setIsMonetizationExpanded] = useState(false);
 
   // Retro sound scheme preference loaded/saved
@@ -2785,6 +2787,36 @@ exit
                         ⚡ Directe .APK download (v1.2)
                       </a>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Box 3.6: Steun Buzzi */}
+              <div className="bg-gradient-to-b from-white to-[#fdf9f2] border border-[#abc4df] rounded-xl shadow-sm text-left overflow-hidden relative">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-sky-500"></div>
+                
+                <div 
+                  onClick={() => {
+                    setIsSupportBuzziExpanded(!isSupportBuzziExpanded);
+                    hiveAudio.playHoneyPop();
+                  }}
+                  className="p-3.5 flex items-center justify-between cursor-pointer hover:brightness-95 bg-gradient-to-b from-sky-50 to-[#e0f2fe] select-none pb-3"
+                >
+                  <h3 className="font-sans font-extrabold text-sky-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                    <span className="text-sm">☕</span>
+                    <span>Steun Buzzi</span>
+                  </h3>
+                  <span className="text-slate-500 font-mono text-xs font-bold">
+                    {isSupportBuzziExpanded ? "▲" : "▼"}
+                  </span>
+                </div>
+
+                {isSupportBuzziExpanded && (
+                  <div className="p-3.5 space-y-3 bg-[#f8fbfe] border-t border-[#d0e3f5] text-xs leading-relaxed text-slate-700">
+                    <p className="text-slate-600">
+                      Geniet je van Buzzi Messenger? Steun ons met een kopje koffie om de servers online te houden!
+                    </p>
+                    <SupportKofi isVisible={isSupportBuzziExpanded} />
                   </div>
                 )}
               </div>

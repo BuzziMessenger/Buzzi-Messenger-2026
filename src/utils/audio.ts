@@ -990,6 +990,60 @@ class BuzziAudioSynthesizer {
     }
   }
 
+  public playRocketWink() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const actx = this.ctx;
+      const now = actx.currentTime;
+      
+      // Rocket launch sound effect (engine rumble to blast-off)
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(80, now);
+      osc.frequency.linearRampToValueAtTime(400, now + 1);
+      
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.1, now + 0.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+      
+      osc.connect(gain);
+      gain.connect(actx.destination);
+      osc.start(now);
+      osc.stop(now + 1.2);
+    } catch (e) {
+      console.warn("Rocket sound failed:", e);
+    }
+  }
+
+  public playRobotWink() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const actx = this.ctx;
+      const now = actx.currentTime;
+      
+      // Robotic mechanical sound pattern
+      const notes = [120, 160, 120, 200];
+      notes.forEach((freq, idx) => {
+          const t = now + (idx * 0.15);
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "square";
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.07, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+          osc.connect(gain);
+          gain.connect(actx.destination);
+          osc.start(t);
+          osc.stop(t + 0.13);
+      });
+    } catch (e) {
+      console.warn("Robot sound failed:", e);
+    }
+  }
+
   public playOnlineAlert() {
     this.playLogin();
   }
