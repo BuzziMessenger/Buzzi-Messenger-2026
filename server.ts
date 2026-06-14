@@ -1026,78 +1026,87 @@ exit
     }
   });
 
-  // ========== WEB RTC CALL SIGNALING FOR REAL-TIME VIDEO CALLING ==========
-  const callSignals: Record<string, {
-    roomId: string;
-    offer?: any;
-    answer?: any;
-    callerCandidates: any[];
-    calleeCandidates: any[];
-    updatedAt: number;
-  }> = {};
-
+  // ========== WEB RTC CALL SIGNALING FOR REAL-TIME VIDEO CALLING (PERSISTENT) ==========
   // Clean stale signals periodically (older than 10 mins)
-  setInterval(() => {
+  setInterval(async () => {
     const now = Date.now();
-    for (const id in callSignals) {
-      if (now - callSignals[id].updatedAt > 600000) {
-        delete callSignals[id];
+    try {
+      const dbInstance = await getMongoDb();
+      if (dbInstance) {
+        await dbInstance.collection("calls").deleteMany({ updatedAt: { $lt: now - 600000 } });
       }
+    } catch (err) {
+      console.warn("Stale signal cleanup failed:", err);
     }
   }, 60000);
 
-  app.get("/api/db/calls/signal", (req, res) => {
+  app.get("/api/db/calls/signal", async (req, res) => {
     const { roomId } = req.query;
     if (!roomId) {
       res.status(400).json({ error: "Missing roomId" });
       return;
     }
     const rId = roomId as string;
-    if (!callSignals[rId]) {
-      callSignals[rId] = { roomId: rId, callerCandidates: [], calleeCandidates: [], updatedAt: Date.now() };
+    try {
+      const dbInstance = await getMongoDb();
+      if (dbInstance) {
+        const room = await dbInstance.collection("calls").findOne({ roomId: rId });
+        if (room) {
+          res.json(room);
+        } else {
+          res.json({ roomId: rId, callerCandidates: [], calleeCandidates: [], updatedAt: Date.now() });
+        }
+      } else {
+        res.status(500).json({ error: "Database not available" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-    res.json(callSignals[rId]);
   });
 
-  app.post("/api/db/calls/signal", (req, res) => {
+  app.post("/api/db/calls/signal", async (req, res) => {
     const { roomId, type, data } = req.body;
     if (!roomId || !type) {
       res.status(400).json({ error: "Missing roomId or type" });
       return;
     }
     const rId = roomId as string;
-    if (!callSignals[rId]) {
-      callSignals[rId] = { roomId: rId, callerCandidates: [], calleeCandidates: [], updatedAt: Date.now() };
-    }
-    const room = callSignals[rId];
-    room.updatedAt = Date.now();
-
-    if (type === "offer") {
-      room.offer = data;
-    } else if (type === "answer") {
-      room.answer = data;
-    } else if (type === "caller_candidate") {
-      if (data) {
-        const strVal = JSON.stringify(data);
-        if (!room.callerCandidates.some(c => JSON.stringify(c) === strVal)) {
-          room.callerCandidates.push(data);
+    try {
+      const dbInstance = await getMongoDb();
+      if (dbInstance) {
+        const now = Date.now();
+        let updateQuery: any = { $set: { updatedAt: now } };
+        
+        if (type === "offer") {
+          updateQuery.$set.offer = data;
+        } else if (type === "answer") {
+          updateQuery.$set.answer = data;
+        } else if (type === "caller_candidate") {
+          updateQuery.$push = { callerCandidates: data };
+        } else if (type === "callee_candidate") {
+          updateQuery.$push = { calleeCandidates: data };
+        } else if (type === "reset") {
+          updateQuery.$set = { 
+            offer: null, 
+            answer: null, 
+            callerCandidates: [], 
+            calleeCandidates: [], 
+            updatedAt: now 
+          };
         }
-      }
-    } else if (type === "callee_candidate") {
-      if (data) {
-        const strVal = JSON.stringify(data);
-        if (!room.calleeCandidates.some(c => JSON.stringify(c) === strVal)) {
-          room.calleeCandidates.push(data);
-        }
-      }
-    } else if (type === "reset") {
-      room.offer = undefined;
-      room.answer = undefined;
-      room.callerCandidates = [];
-      room.calleeCandidates = [];
-    }
 
-    res.json({ success: true });
+        await dbInstance.collection("calls").updateOne(
+          { roomId: rId },
+          updateQuery,
+          { upsert: true }
+        );
+        res.json({ success: true });
+      } else {
+        res.status(500).json({ error: "Database not available" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
   // =========================================================================
 
