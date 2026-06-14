@@ -1417,7 +1417,6 @@ exit
 
   // Periodic heartbeat to keep client active status fresh on the server
   useEffect(() => {
-useEffect(() => {
     // Alleen uitvoeren als de gebruiker bekend is en profiel klaar is
     if (!currentUser || !profileInitialized) return;
 
