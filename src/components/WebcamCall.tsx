@@ -318,7 +318,7 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
 
       // Candidate handling
       pc.onicecandidate = (event) => {
-        if (event.candidate && active) {
+        if (event.candidate && event.candidate.candidate && event.candidate.candidate !== "" && active) {
           console.log("WebRTC: ICE candidate gathered", event.candidate);
           const candStr = JSON.stringify(event.candidate);
           if (!localCandidatesUploaded.includes(candStr)) {

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-export const SupportKofi = ({ isVisible }: { isVisible: boolean }) => {
+export const SupportKofi = () => {
     useEffect(() => {
         const initKofi = () => {
             // @ts-ignore
@@ -26,15 +26,15 @@ export const SupportKofi = ({ isVisible }: { isVisible: boolean }) => {
             script.onload = initKofi;
             document.body.appendChild(script);
         }
-    }, []);
 
-    useEffect(() => {
-        // Toggle visibility of Ko-fi elements
-        const elements = document.querySelectorAll('.kofi-widget-wrapper, .kofi-chat-container');
-        elements.forEach((el) => {
-            (el as HTMLElement).style.display = isVisible ? 'block' : 'none';
-        });
-    }, [isVisible]);
+        // Cleanup: Remove widget elements on unmount
+        return () => {
+            const elements = document.querySelectorAll('.kofi-widget-wrapper, .kofi-chat-container');
+            elements.forEach((el) => {
+                el.remove();
+            });
+        };
+    }, []);
 
     return null;
 };

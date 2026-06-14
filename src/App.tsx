@@ -2816,7 +2816,7 @@ exit
                     <p className="text-slate-600">
                       Geniet je van Buzzi Messenger? Steun ons met een kopje koffie om de servers online te houden!
                     </p>
-                    <SupportKofi isVisible={isSupportBuzziExpanded} />
+                    <SupportKofi />
                   </div>
                 )}
               </div>
