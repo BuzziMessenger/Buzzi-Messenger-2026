@@ -27,7 +27,8 @@ import {
   Headphones,
   Video,
   Paperclip,
-  Gamepad2
+  Gamepad2,
+  CheckCheck
 } from "lucide-react";
 import { hiveAudio } from "../utils/audio";
 import { WebcamCall } from "./WebcamCall";
@@ -270,6 +271,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Webcam, spellen en bestand overdracht
   const [showWebcamCall, setShowWebcamCall] = useState(false);
+  const [currentCallId, setCurrentCallId] = useState<string | undefined>(undefined);
+  const [isCallInitiator, setIsCallInitiator] = useState(false);
   const [showGameDuel, setShowGameDuel] = useState(false);
   const [currentGameId, setCurrentGameId] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -277,12 +280,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   useEffect(() => {
     // Reset webcam call en game duel bij gespreks-wisseling
     setShowWebcamCall(false);
+    setCurrentCallId(undefined);
+    setIsCallInitiator(false);
     setShowGameDuel(false);
     setCurrentGameId(undefined);
   }, [activeId]);
 
   useEffect(() => {
     if (autoStartCallId) {
+      setCurrentCallId(autoStartCallId);
+      setIsCallInitiator(false);
       setShowWebcamCall(true);
       setShowGameDuel(false);
       onClearAutoStart?.();
@@ -798,6 +805,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   alert("Videobellen en spellen spelen is alleen beschikbaar voor ingelogde gebruikers.");
                   return;
                 }
+                setCurrentCallId(callId);
+                setIsCallInitiator(true);
                 onSendMessage(
                   "📹 Wil een videoverbinding met je starten!",
                   false,
@@ -1135,6 +1144,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       ) : (
                         <button
                           onClick={() => {
+                            setCurrentCallId(msg.callId);
+                            setIsCallInitiator(false);
                             setShowWebcamCall(true);
                             hiveAudio.playHoneyPop();
                           }}
@@ -1165,8 +1176,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       {msg.senderName} zegt:
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">({msg.timestamp})</span>
+                    {isMe && msg.isRead && (
+                      <motion.span 
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                        title="Gelezen" 
+                        className="text-blue-500 ml-0.5"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5" />
+                      </motion.span>
+                    )}
                     
-                    {msg.ip && (
+                    {isViewingUserAdmin && msg.ip && (
                       <span className="inline-flex items-center gap-1 select-none">
                         <span className={`text-[8.5px] font-mono px-1 rounded border leading-none py-0.5 ${
                           blockedIps.includes(msg.ip)
@@ -1176,7 +1198,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           IP: {msg.ip} {blockedIps.includes(msg.ip) && "⚠️ (GEBLOKKEERD)"}
                         </span>
                         
-                        {isViewingUserAdmin && msg.senderId !== myUserId && (
+                        {msg.senderId !== myUserId && (
                           blockedIps.includes(msg.ip) ? (
                             <button
                               onClick={() => {
@@ -1269,24 +1291,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               );
             })}
 
-            {/* Buzzi Ticker indicator "Buzzi Bot is typing a message..." */}
-            {isTyping && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="text-[11px] text-slate-400 italic pl-4 py-1.5 flex items-center gap-2.5"
-              >
-                <div className="flex gap-0.5 items-center">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce delay-75" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce delay-150" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-600 animate-bounce delay-300" />
-                </div>
-                <span>
-                  {activeContact ? activeContact.name : "Je gesprekspartner"} is een bericht aan het typen...
-                </span>
-              </motion.div>
-            )}
+            {/* Buzzi Ticker indicator removed in favor of floating bubble */}
           </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
@@ -2085,6 +2090,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       )}
 
+      {/* Floating Animated Typing Bubble */}
+      <div className="relative">
+        <AnimatePresence>
+          {isTyping && (
+            <motion.div 
+              initial={{ opacity: 0, y: 15, scale: 0.95 }} 
+              animate={{ opacity: 1, y: 0, scale: 1 }} 
+              exit={{ opacity: 0, y: 15, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-2 left-6 z-10 flex items-end gap-2 drop-shadow-sm pointer-events-none"
+            >
+               <div className="bg-white border border-[#bad0e3] p-2.5 rounded-2xl rounded-bl-sm flex items-center justify-center h-[34px]">
+                  <div className="flex gap-1 items-center">
+                    <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, delay: 0 }} className="w-1.5 h-1.5 rounded-full bg-slate-400 block" />
+                    <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, delay: 0.15 }} className="w-1.5 h-1.5 rounded-full bg-slate-400 block" />
+                    <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, delay: 0.3 }} className="w-1.5 h-1.5 rounded-full bg-slate-400 block" />
+                  </div>
+               </div>
+               <span className="text-[10px] text-slate-500 italic font-medium mb-1 bg-white/60 px-1.5 rounded">
+                 {activeContact?.name || "Iemand"} is aan het typen...
+               </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* Input Action Panel (Separated into rich area text in MSI clone) */}
       <div className="p-4 bg-white border-t border-[#bad0e3] shadow-inner-lg">
         <div className="max-w-4xl mx-auto flex items-end gap-3">
@@ -2160,7 +2191,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           activeContactName={activeContact.name}
           activeContactAvatar={activeContact.avatar}
           myUserId={myUserId}
-          onClose={() => setShowWebcamCall(false)}
+          roomId={currentCallId}
+          isInitiator={isCallInitiator}
+          onClose={() => {
+            setShowWebcamCall(false);
+            setCurrentCallId(undefined);
+          }}
         />
       )}
 

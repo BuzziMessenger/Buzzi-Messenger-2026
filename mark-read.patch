@@ -1,0 +1,38 @@
+--- server.ts
++++ server.ts
+@@ -702,4 +702,32 @@
+   });
+ 
++  // DB API: Mark messages as read
++  app.post("/api/db/messages/mark-read", async (req, res) => {
++    try {
++      const { senderId, receiverId } = req.body;
++      if (!senderId || !receiverId) {
++        res.status(400).json({ error: "Missing senderId or receiverId" });
++        return;
++      }
++      const dbInstance = await getMongoDb();
++      if (dbInstance) {
++        try {
++          await dbInstance.collection("messages").updateMany(
++            { senderId, receiverId, isRead: { $ne: true } },
++            { $set: { isRead: true } }
++          );
++        } catch (mongoErr) {
++          console.warn("MongoDB mark-read failed, falling back local:", mongoErr);
++        }
++      }
++      const messages = readJsonFile<any[]>(MESSAGES_FILE, []);
++      messages.forEach(m => {
++        if (m.senderId === senderId && m.receiverId === receiverId) {
++          m.isRead = true;
++        }
++      });
++      writeJsonFile(MESSAGES_FILE, messages);
++      res.json({ success: true });
++    } catch (err: any) {
++      res.status(500).json({ error: err.message });
++    }
++  });
++
+   // DB API: Delete User (Admin control)

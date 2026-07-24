@@ -13,6 +13,8 @@ interface WebcamCallProps {
   activeContactName: string;
   activeContactAvatar: string;
   myUserId?: string;
+  roomId?: string;
+  isInitiator?: boolean;
   onClose: () => void;
 }
 
@@ -21,6 +23,8 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
   activeContactName,
   activeContactAvatar,
   myUserId,
+  roomId,
+  isInitiator,
   onClose
 }) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -32,7 +36,6 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isFpsDrop, setIsFpsDrop] = useState(false);
   const [remoteCaption, setRemoteCaption] = useState("");
-  const [roomId, setRoomId] = useState<string>("");
   
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -225,8 +228,7 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
   useEffect(() => {
     if (isAIBot || !myUserId || !localStream) return;
 
-    const calculatedRoomId = [myUserId, activeContactId].sort().join("-");
-    setRoomId(calculatedRoomId);
+    const calculatedRoomId = roomId || [myUserId, activeContactId].sort().join("-");
 
     let active = true;
     let pc: RTCPeerConnection | null = null;
@@ -255,28 +257,38 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
         }
       };
 
-      let isCaller = false;
+      let isCaller = isInitiator !== undefined ? isInitiator : false;
       try {
         setCallStatus("connecting");
         const res = await fetch(`/api/db/calls/signal?roomId=${calculatedRoomId}`);
         const signalData = await res.json();
         
-        if (signalData && signalData.offer) {
+        if (isInitiator === false || (isInitiator === undefined && signalData && signalData.offer)) {
           isCaller = false;
-          await pc.setRemoteDescription(new RTCSessionDescription(signalData.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
+          
+          const processOffer = async () => {
+            const offerToUse = signalData?.offer;
+            if (offerToUse) {
+              await pc!.setRemoteDescription(new RTCSessionDescription(offerToUse));
+              const answer = await pc!.createAnswer();
+              await pc!.setLocalDescription(answer);
 
-          await fetch("/api/db/calls/signal", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ roomId: calculatedRoomId, type: "answer", data: answer })
-          });
+              await fetch("/api/db/calls/signal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roomId: calculatedRoomId, type: "answer", data: answer })
+              });
 
-          setTimeout(() => {
-            if (active) setCallStatus("active");
-          }, 1500);
-        } else {
+              setTimeout(() => {
+                if (active) setCallStatus("active");
+              }, 1500);
+            }
+          };
+          
+          if (signalData && signalData.offer) {
+            await processOffer();
+          }
+        } else if (isInitiator === true || (isInitiator === undefined && (!signalData || !signalData.offer))) {
           isCaller = true;
           await fetch("/api/db/calls/signal", {
             method: "POST",
@@ -334,7 +346,7 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
             setCallStatus("active");
           }                
           
-          if (!isCaller && signalInfo.offer && pc.signalingState === "stable") {
+          if (!isCaller && signalInfo.offer && pc.signalingState === "stable" && !pc.currentRemoteDescription) {
             await pc.setRemoteDescription(new RTCSessionDescription(signalInfo.offer));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);

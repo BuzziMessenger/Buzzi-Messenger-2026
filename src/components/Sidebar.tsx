@@ -51,7 +51,7 @@ const RETRO_PLAYLIST: TrackItem[] = [
   },
   {
     title: "Qmusic NL (Live) 📻",
-    url: "https://stream.qmusic.nl/qmusic/mp3",
+    url: "https://icecast-qmusicnl-cdp.triple-it.nl/Qmusic_nl_live_96.mp3",
     artist: "DPG Media",
     genre: "Actuele Pop & Hits"
   },
@@ -75,31 +75,25 @@ const RETRO_PLAYLIST: TrackItem[] = [
   },
   {
     title: "KINK (Alternative Rock) 🎸",
-    url: "https://stream.kink.nl/kink.mp3",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/KINK.mp3",
     artist: "KINK",
     genre: "Alternative Rock"
   },
   {
-    title: "Arrow Classic Rock ⚡",
-    url: "https://stream.arrow.nl/arrowrock_mp3",
-    artist: "Arrow Classic",
-    genre: "Classic Rock"
-  },
-  {
     title: "JOE (Live Retro Hits) 🕺",
-    url: "https://stream.joe.nl/joe_nl/mp3",
+    url: "https://icecast-qmusicnl-cdp.triple-it.nl/Joe_nl.mp3",
     artist: "DPG Media",
     genre: "70s, 80s & 90s Hits"
   },
   {
     title: "SLAM! (Live Electronic) 🔊",
-    url: "https://stream.slam.nl/slam_mp3",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/SLAM_MP3.mp3",
     artist: "Mediahuis",
     genre: "Dance & House Hits"
   },
   {
     title: "100% NL (Nederpoppunk) 🇳🇱",
-    url: "https://stream.100p.nl/100pctnl.mp3",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/100PNL_MP3.mp3",
     artist: "Mediahuis",
     genre: "Nederlandse Muziek"
   },
@@ -117,15 +111,9 @@ const RETRO_PLAYLIST: TrackItem[] = [
   },
   {
     title: "Sublime FM (Jazz & Soul) 🎷",
-    url: "https://stream.sublime.nl/sublime_mp3",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/SUBLIME.mp3",
     artist: "Mediahuis",
     genre: "Funk, Soul & Jazz"
-  },
-  {
-    title: "BNR Nieuwsradio (Live) 📰",
-    url: "https://stream.bnr.nl/bnr_mp3",
-    artist: "FD Mediagroep",
-    genre: "Nieuws & Actualiteiten"
   },
   {
     title: "Radio 10 - 80s Hits 💫",
@@ -138,6 +126,12 @@ const RETRO_PLAYLIST: TrackItem[] = [
     url: "https://icecast.omroep.nl/radio4-bb-mp3",
     artist: "Publieke Omroep",
     genre: "Klassieke Muziek"
+  },
+  {
+    title: "BNR Nieuwsradio (Live) 📰",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/BNR_NIEUWSRADIO.mp3",
+    artist: "FD Mediagroep",
+    genre: "Nieuws & Actualiteiten"
   }
 ];
 
@@ -906,8 +900,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               </div>
 
-              <div className="text-[9px] text-slate-400 font-bold">
-                {isPlaying ? "📻 ONLINE STREAM" : "📻 PAUSED"}
+              <div className="text-[9px] text-slate-400 font-bold flex items-center">
+                <select 
+                  value={currentTrackIdx}
+                  onChange={(e) => playTrackDirect(Number(e.target.value))}
+                  className="bg-[#0c121d] border border-[#2d3a4e] rounded px-1 py-0.5 text-emerald-400 outline-none hover:border-slate-500 cursor-pointer max-w-[110px] truncate"
+                  title="Kies een radiozender"
+                >
+                  {RETRO_PLAYLIST.map((track, idx) => (
+                    <option key={idx} value={idx}>{track.title}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

@@ -29,6 +29,7 @@ export interface Message {
     status: "sending" | "completed" | "failed";
     dataUrl?: string;
   };
+  isRead?: boolean; // Read receipt flag
 }
 
 export type StatusType = "online" | "bezet" | "afwezig" | "offline";

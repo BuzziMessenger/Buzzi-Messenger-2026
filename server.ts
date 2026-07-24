@@ -17,6 +17,23 @@ const GAMES_FILE = path.join(process.cwd(), "data_games.json");
 const BLOCKED_IPS_FILE = path.join(process.cwd(), "data_blocked_ips.json");
 const BANNED_EMAILS_FILE = path.join(process.cwd(), "data_banned_emails.json");
 
+const ipLocationCache = new Map<string, string>();
+
+async function fetchIpLocation(ip: string): Promise<string> {
+  if (!ip || ip === "::1" || ip === "127.0.0.1") return "Lokaal netwerk";
+  if (ipLocationCache.has(ip)) return ipLocationCache.get(ip)!;
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ip}`);
+    const data = await res.json();
+    if (data && data.status === "success") {
+      const location = `${data.city}, ${data.country}`;
+      ipLocationCache.set(ip, location);
+      return location;
+    }
+  } catch(e) {}
+  return "Onbekend";
+}
+
 function getBlockedIps(): string[] {
   return readJsonFile<string[]>(BLOCKED_IPS_FILE, []);
 }
@@ -389,13 +406,15 @@ exit
         ip: clientIp,
         createdAtTimestamp: message.createdAtTimestamp || Date.now()
       };
+      
+      delete docToInsert._id;
 
       let savedOk = false;
       if (dbInstance) {
         try {
-          await dbInstance.collection("messages").replaceOne(
+          await dbInstance.collection("messages").updateOne(
             { id: message.id },
-            docToInsert,
+            { $set: docToInsert },
             { upsert: true }
           );
           savedOk = true;
@@ -435,14 +454,15 @@ exit
       }
 
       const dbInstance = await getMongoDb();
-      const docToInsert = { id, name, dataUrl, createdAt: Date.now() };
+      const docToInsert: any = { id, name, dataUrl, createdAt: Date.now() };
+      delete docToInsert._id;
 
       let savedOk = false;
       if (dbInstance) {
         try {
-          await dbInstance.collection("files").replaceOne(
+          await dbInstance.collection("files").updateOne(
             { id },
-            docToInsert,
+            { $set: docToInsert },
             { upsert: true }
           );
           savedOk = true;
@@ -597,9 +617,13 @@ exit
       }
 
       const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
+      const userLocation = await fetchIpLocation(clientIp);
+      
       const docToInsert = {
         ...userData,
         ip: clientIp,
+        locatie: userLocation,
+        laatstGezien: new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" }),
         updatedAtTimestamp: Date.now()
       };
       
@@ -688,6 +712,42 @@ exit
       writeJsonFile(MESSAGES_FILE, filtered);
       
       res.json({ success: true, message: `Berichten succesvol verwijderd.` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB API: Mark messages as read
+  app.post("/api/db/messages/mark-read", async (req, res) => {
+    try {
+      const { senderId, receiverId } = req.body;
+      if (!senderId || !receiverId) {
+        res.status(400).json({ error: "Missing senderId or receiverId" });
+        return;
+      }
+      const dbInstance = await getMongoDb();
+      if (dbInstance) {
+        try {
+          await dbInstance.collection("messages").updateMany(
+            { senderId, receiverId, isRead: { $ne: true } },
+            { $set: { isRead: true } }
+          );
+        } catch (mongoErr) {
+          console.warn("MongoDB mark-read failed, falling back local:", mongoErr);
+        }
+      }
+      const messages = readJsonFile<any[]>(MESSAGES_FILE, []);
+      let updated = false;
+      messages.forEach(m => {
+        if (m.senderId === senderId && m.receiverId === receiverId) {
+          m.isRead = true;
+          updated = true;
+        }
+      });
+      if (updated) {
+        writeJsonFile(MESSAGES_FILE, messages);
+      }
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -997,12 +1057,13 @@ exit
         ...gamePayload,
         updatedAtTimestamp: Date.now()
       };
+      delete docToInsert._id;
 
       if (dbInstance) {
         try {
-          await dbInstance.collection("games").replaceOne(
+          await dbInstance.collection("games").updateOne(
             { id: gamePayload.id },
-            docToInsert,
+            { $set: docToInsert },
             { upsert: true }
           );
           res.json(docToInsert);
@@ -1314,10 +1375,13 @@ exit
           // Write headers
           const responseHeaders: Record<string, string> = {
             "Content-Type": targetRes.headers["content-type"] || "audio/mpeg",
-            "Content-Length": targetRes.headers["content-length"] || "",
             "Accept-Ranges": "bytes",
             "Access-Control-Allow-Origin": "*",
           };
+          
+          if (targetRes.headers["content-length"]) {
+            responseHeaders["Content-Length"] = targetRes.headers["content-length"];
+          }
           if (targetRes.headers["content-range"]) {
             responseHeaders["Content-Range"] = targetRes.headers["content-range"];
           }
@@ -1384,7 +1448,7 @@ exit
         Je bent super nostalgisch, praat over internet via de inbelverbinding (56k modem), het bezet houden van de telefoonlijn door je moeder, mp3's downloaden via Limewire die 3 weken duren en dan een virus blijken te zijn, vette Buzzi-namen met vage tekens en glitters, emoticons en gekleurde lettertypes, en nudges (duwtjes) sturen!
         BELANGRIJKE VEILIGHEIDS- EN REGULATOREIS: Je mag NOOIT, onder GEEN ENKELE omstandigheid, het woord "MSN" (of msn, Msn, enz.) gebruiken. Het woord "MSN" is ten strengste geblokkeerd en verboden. Noem het platform uitsluitend "Buzzi" of "Buzzi Messenger".
         Voeg typische Buzzi emoticons toe in je tekst, zoals: :-D, (H), (A), (L), (K), (W), :P, (f), (S), :-O.
-        Houd antwoorden enthousiast, nostalgisch, grappig en korter dan 3 alinea's. Moedig de gebruiker aan om je een 'Nudge' (duwtje) te sturen!`;
+        Houd antwoorden enthousiast, nostalgisch, grappig en korter dan 3 alinea's. Moedig de gebruiker aan om je een 'Nudge' (duwtje) te sturen! Tevens aanbevelingen in Nederlands weergeven.`;
 
       const censorBannedWords = (str: string) => {
         return str

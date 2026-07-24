@@ -953,6 +953,9 @@ exit
           } else if (src.includes("qmusic")) {
             updateStatusIfChanged("Qmusic NL (Live) 📻");
             return;
+          } else if (src.includes("RADIO10_80S_HITS")) {
+            updateStatusIfChanged("Radio 10 - 80s Hits 💫");
+            return;
           } else if (src.includes("RADIO10")) {
             updateStatusIfChanged("Radio 10 (Live) 📻");
             return;
@@ -962,11 +965,32 @@ exit
           } else if (src.includes("VERONICA")) {
             updateStatusIfChanged("Radio Veronica 📻");
             return;
-          } else if (src.includes("kink")) {
+          } else if (src.includes("KINK")) {
             updateStatusIfChanged("KINK (Alternative Rock) 🎸");
             return;
-          } else if (src.includes("arrow")) {
-            updateStatusIfChanged("Arrow Classic Rock ⚡");
+          } else if (src.includes("Joe_nl")) {
+            updateStatusIfChanged("JOE (Live Retro Hits) 🕺");
+            return;
+          } else if (src.includes("SLAM_MP3")) {
+            updateStatusIfChanged("SLAM! (Live Electronic) 🔊");
+            return;
+          } else if (src.includes("100PNL")) {
+            updateStatusIfChanged("100% NL (Nederpoppunk) 🇳🇱");
+            return;
+          } else if (src.includes("radio2-bb-mp3")) {
+            updateStatusIfChanged("NPO Radio 2 (Live) 📻");
+            return;
+          } else if (src.includes("3fm-bb-mp3")) {
+            updateStatusIfChanged("NPO 3FM (Live & Nieuw) 📻");
+            return;
+          } else if (src.includes("SUBLIME")) {
+            updateStatusIfChanged("Sublime FM (Jazz & Soul) 🎷");
+            return;
+          } else if (src.includes("radio4-bb-mp3")) {
+            updateStatusIfChanged("NPO Klassiek (Radio 4) 🎻");
+            return;
+          } else if (src.includes("BNR_NIEUWSRADIO")) {
+            updateStatusIfChanged("BNR Nieuwsradio (Live) 📰");
             return;
           }
 
@@ -2167,6 +2191,23 @@ exit
     return () => clearInterval(interval);
   }, [currentUser]);
 
+  // Mark messages as read when a chat is opened
+  useEffect(() => {
+    if (currentUser && activeId && activeId !== "mensen-van-toen" && activeId !== "breezer-groep" && activeId !== "queen") {
+      const chatMessages = messages[activeId] || [];
+      const hasUnread = chatMessages.some(m => m.senderId === activeId && !m.isRead);
+      if (hasUnread) {
+        fetch("/api/db/messages/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ senderId: activeId, receiverId: currentUser.uid })
+        }).catch(err => console.warn("Failed to mark messages as read", err));
+        
+        setUnreadCounts(prev => ({ ...prev, [activeId]: 0 }));
+      }
+    }
+  }, [activeId, currentUser, messages[activeId]?.length]);
+
   // Sending a message
   const handleSendMessage = async (
     text: string,
@@ -3072,6 +3113,10 @@ exit
                                   </div>
                                 )}
                               </div>
+                              <div className="flex justify-between items-center text-[8px] text-slate-500">
+                                <span>{u.locatie ? `📍 ${u.locatie}` : ""}</span>
+                                <span>{u.laatstGezien ? `🕒 ${u.laatstGezien}` : (u.updatedAtTimestamp ? `🕒 ${new Date(u.updatedAtTimestamp).toLocaleString('nl-NL')}` : "")}</span>
+                              </div>
                             </div>
                           );
                         })}
@@ -3183,6 +3228,8 @@ exit
                                <span className="font-bold">{u.name}</span>
                                <span className="text-[8px] text-slate-500">{u.email}</span>
                                {u.ip && <span className="text-[8px] font-mono text-slate-600 block">IP: {u.ip} {blockedIps.includes(u.ip) ? " (🚫)" : ""}</span>}
+                               {u.locatie && <span className="text-[8px] text-slate-500 block">📍 {u.locatie}</span>}
+                               {u.laatstGezien ? <span className="text-[8px] text-slate-500 block">🕒 {u.laatstGezien}</span> : (u.updatedAtTimestamp ? <span className="text-[8px] text-slate-500 block">🕒 {new Date(u.updatedAtTimestamp).toLocaleString('nl-NL')}</span> : null)}
                              </div>
                              <div className="flex gap-1">
                               <button
