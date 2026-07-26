@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Laptop, Smartphone, Video, VideoOff, Mic, MicOff, Maximize2, PhoneOff, RefreshCw, Disc } from "lucide-react";
+import { Laptop, Smartphone, Video, VideoOff, Mic, MicOff, Maximize2, PhoneOff, RefreshCw, Disc, MonitorUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface WebcamCallProps {
@@ -33,6 +33,7 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
   const [callStatus, setCallStatus] = useState<"dialing" | "connecting" | "active" | "ended">("dialing");
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isFpsDrop, setIsFpsDrop] = useState(false);
   const [remoteCaption, setRemoteCaption] = useState("");
@@ -396,6 +397,45 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
     }
   }, [localStream, callStatus]);
 
+  const handleToggleScreenShare = async () => {
+    try {
+      if (isScreenSharing) {
+        // Revert to camera
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" }, audio: true });
+        setLocalStream(stream);
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        if (pcRef.current) {
+          const videoTrack = stream.getVideoTracks()[0];
+          const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) sender.replaceTrack(videoTrack);
+        }
+        setIsScreenSharing(false);
+      } else {
+        // Start screen sharing
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        if (localStream) {
+          const audioTrack = localStream.getAudioTracks()[0];
+          if (audioTrack) stream.addTrack(audioTrack);
+        }
+        setLocalStream(stream);
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        
+        if (pcRef.current) {
+          const videoTrack = stream.getVideoTracks()[0];
+          const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) sender.replaceTrack(videoTrack);
+          
+          videoTrack.onended = () => {
+             handleToggleScreenShare(); 
+          };
+        }
+        setIsScreenSharing(true);
+      }
+    } catch (err) {
+      console.warn("Screen share error", err);
+    }
+  };
+
   const handleEndCall = () => {
     playBeep(261.63, 0.4, "sine");
     setTimeout(() => playBeep(196, 0.5, "sine"), 150);
@@ -477,6 +517,11 @@ export const WebcamCall: React.FC<WebcamCallProps> = ({
           <button onClick={() => setIsVideoOff(!isVideoOff)} className={`p-2 rounded-lg border cursor-pointer ${isVideoOff ? 'bg-red-100' : 'bg-white'}`}>
             {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
           </button>
+          {!isAIBot && (
+            <button onClick={handleToggleScreenShare} className={`p-2 rounded-lg border cursor-pointer ${isScreenSharing ? 'bg-sky-200 border-sky-400' : 'bg-white'}`} title="Scherm Delen">
+              <MonitorUp className="w-4 h-4" />
+            </button>
+          )}
           <button onClick={handleEndCall} className="bg-red-600 text-white font-bold py-2 px-3.5 rounded-lg flex items-center gap-1.5 text-xs"><PhoneOff className="w-4 h-4" /> Beëindigen</button>
         </div>
       </div>

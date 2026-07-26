@@ -2216,7 +2216,7 @@ exit
     winkId?: string,
     fileTransfer?: any,
     isGameDuel?: boolean,
-    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory",
+    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory" | "paint" | "battleship",
     gameId?: string,
     isCallInvite?: boolean,
     callId?: string

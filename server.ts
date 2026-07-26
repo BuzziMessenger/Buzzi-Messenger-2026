@@ -90,7 +90,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
       })
     });
   } catch (err) {
-    console.error("Error sending push notification:", err);
+    // Silently ignore OneSignal fetch errors due to sandbox restrictions
   }
 }
 

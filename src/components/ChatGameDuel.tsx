@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Trophy, RotateCcw, X, Gamepad2, User, Smile, MessageSquare } from "lucide-react";
+import { PaintDuel } from "./PaintDuel";
 
 interface ChatGameDuelProps {
   activeContactId: string;
@@ -19,13 +20,13 @@ interface ChatGameDuelProps {
   onSendGameStatusMessage: (
     text: string,
     isGameDuel?: boolean,
-    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory",
+    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory" | "paint" | "battleship",
     gameId?: string
   ) => void;
 }
 
 type BoardState = (string | null)[];
-type GameType = "tictactoe" | "connect4" | "rps" | "snake" | "memory";
+type GameType = "tictactoe" | "connect4" | "rps" | "snake" | "memory" | "paint" | "battleship";
 
 export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
   activeContactId,
@@ -62,6 +63,10 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
   const [rpsTheirChoice, setRpsTheirChoice] = useState<"steen" | "papier" | "schaar" | null>(null);
   const [rpsWinner, setRpsWinner] = useState<"me" | "bot" | "draw" | null>(null);
   const [rpsIsCalculating, setRpsIsCalculating] = useState(false);
+
+  // Paint Duel States
+  const [paintStrokes, setPaintStrokes] = useState<any[]>([]);
+  const paintStrokesRef = useRef<any[]>([]);
 
   // Buzzi Slang (Snake) States
   const [snakeCoords, setSnakeCoords] = useState<{ x: number; y: number }[]>([]);
@@ -346,6 +351,14 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
           }
 
           // Sync Steen, Papier, Schaar
+          // Sync Paint Duel
+          if (game.gameType === "paint" && game.paintStrokes) {
+             if (JSON.stringify(game.paintStrokes) !== JSON.stringify(paintStrokesRef.current)) {
+               setPaintStrokes(game.paintStrokes);
+               paintStrokesRef.current = game.paintStrokes;
+             }
+          }
+
           if (game.gameType === "rps") {
             const myRemoteChoice = amIPlayer1 ? game.rpsChoices?.player1 : game.rpsChoices?.player2;
             const theirRemoteChoice = amIPlayer1 ? game.rpsChoices?.player2 : game.rpsChoices?.player1;
@@ -369,6 +382,8 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
               setRpsWinner(winState);
             } else {
               setRpsWinner(null);
+    setPaintStrokes([]);
+    paintStrokesRef.current = [];
             }
           }
         }
@@ -495,6 +510,8 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
     setRpsMyChoice(null);
     setRpsTheirChoice(null);
     setRpsWinner(null);
+    setPaintStrokes([]);
+    paintStrokesRef.current = [];
     
     // Initialize new game modes
     if (type === "snake") {
@@ -557,7 +574,7 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
         p1Wins: amIPlayer1 ? myWins : theirWins,
         p2Wins: amIPlayer1 ? theirWins : myWins,
         draws: draws,
-        rpsChoices: { player1: null, player2: null }
+        rpsChoices: { player1: null, player2: null }, paintStrokes: []
       };
 
       try {
@@ -1087,6 +1104,10 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
     setRpsMyChoice(null);
     setRpsTheirChoice(null);
     setRpsWinner(null);
+    setPaintStrokes([]);
+    paintStrokesRef.current = [];
+    setPaintStrokes([]);
+    paintStrokesRef.current = [];
 
     if (isMultiplayer) {
       const resetPayload = {
@@ -1095,7 +1116,8 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
         c4Board: Array(6).fill(null).map(() => Array(7).fill(null)),
         turn: amIPlayer1 ? "player1" : "player2",
         winner: null,
-        rpsChoices: { player1: null, player2: null }
+        rpsChoices: { player1: null, player2: null }, paintStrokes: [],
+        paintStrokes: []
       };
 
       await uploadGameState(resetPayload);
@@ -1207,6 +1229,15 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
                   <span className="text-xl filter drop-shadow">🪨 📄 ✂️</span>
                   <span className="text-[11px] font-extrabold text-emerald-800 leading-none">Steen, Papier, Schaar</span>
                   <span className="text-[9px] text-slate-500 font-mono font-medium">Buzzi Retro Classic Rock-Paper-Scissors</span>
+                </button>
+
+                <button
+                  onClick={() => handleStartGame("paint")}
+                  className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 p-2.5 rounded-lg text-center cursor-pointer hover:shadow-xs transition-colors active:scale-95 flex flex-col items-center gap-1 w-full mt-2"
+                >
+                  <span className="text-xl filter drop-shadow">🎨🖌️</span>
+                  <span className="text-[11px] font-extrabold text-indigo-800 leading-none">Paint Duel</span>
+                  <span className="text-[9px] text-slate-500 font-mono font-medium">Teken tegelijkertijd met je vriend!</span>
                 </button>
               </div>
             </div>
@@ -1387,6 +1418,22 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
                       </div>
                     </div>
                   )}
+                </div>
+              ) : activeGame === "paint" ? (
+                /* Paint Duel Board layout */
+                <div className="space-y-2.5 w-full">
+                  <div className="font-mono text-[9.5px] bg-indigo-50 border border-indigo-200 py-1 rounded text-indigo-800 font-bold uppercase text-center px-2">
+                    Paint Duel
+                  </div>
+                  <PaintDuel 
+                    strokes={paintStrokes}
+                    onUploadStrokes={async (strokes) => {
+                       setPaintStrokes(strokes);
+                       paintStrokesRef.current = strokes;
+                       if (isMultiplayer) await uploadGameState({ paintStrokes: strokes });
+                    }}
+                    isMultiplayer={isMultiplayer}
+                  />
                 </div>
               ) : activeGame === "memory" ? (
                 /* Memory Match Trainer Board layout */

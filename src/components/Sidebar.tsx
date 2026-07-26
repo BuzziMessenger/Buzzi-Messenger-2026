@@ -1790,8 +1790,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                       <div className="flex flex-col gap-1.5">
                         <label className="text-[10px] font-black text-[#1C427F] uppercase tracking-wider block">
-                          Selecteer een retro Buzzi avatar status
+                          Buzzi Avatar of Eigen Foto
                         </label>
+                        
+                        <div className="flex items-center gap-3 bg-[#EAF2FA] p-2.5 rounded-xl border-2 border-[#B9CEDF] mb-1">
+                          <div className="w-10 h-10 bg-white rounded-lg border-2 border-[#1C427F] shadow-inner shrink-0 flex items-center justify-center overflow-hidden">
+                            {isCustomAvatar(addContactAvatar) ? (
+                              <img src={addContactAvatar} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <span className="text-xl">{addContactAvatar}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <label className="cursor-pointer bg-[#1C427F] hover:bg-sky-800 text-white font-black text-[9px] uppercase tracking-wider px-2 py-1 rounded-md text-center max-w-fit flex items-center gap-1 cursor-pointer transition-colors active:scale-95 shadow">
+                              <Camera className="w-3 h-3" />
+                              <span>📷 Upload Foto</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = (event) => {
+                                    const img = new Image();
+                                    img.onload = () => {
+                                      const canvas = document.createElement("canvas");
+                                      let width = img.width; let height = img.height;
+                                      if (width > height) { if (width > 100) { height *= 100 / width; width = 100; } } 
+                                      else { if (height > 100) { width *= 100 / height; height = 100; } }
+                                      canvas.width = width; canvas.height = height;
+                                      const ctx = canvas.getContext("2d");
+                                      if (ctx) {
+                                        ctx.drawImage(img, 0, 0, width, height);
+                                        setAddContactAvatar(canvas.toDataURL("image/jpeg", 0.85));
+                                        hiveAudio.playNotification();
+                                      }
+                                    };
+                                    img.src = event.target?.result as string;
+                                  };
+                                  reader.readAsDataURL(file);
+                                }}
+                                className="hidden" 
+                              />
+                            </label>
+                            <p className="text-[9px] text-[#1C427F] font-bold leading-none">Of klik op een Buzzi icoon hieronder:</p>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-5 gap-2 bg-white/80 p-2 border border-[#bad0e3] rounded-lg">
                           {["🧑‍🚀", "👸", "👾", "🦊", "🐯", "🐼", "🕶️", "🎩", "🍕", "🎸"].map((av) => (
                             <button

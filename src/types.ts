@@ -14,7 +14,7 @@ export interface Message {
   isWink?: boolean; // True if a fullscreen Wink
   winkId?: string; // e.g. "pig", "crazy", "water", "guitar", "heart"
   isGameDuel?: boolean; // Game invite
-  gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory";
+  gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory" | "paint" | "battleship";
   gameId?: string;
   gameStatus?: "inviting" | "ended" | "active";
   isCallInvite?: boolean; // Real WebRTC calling invite

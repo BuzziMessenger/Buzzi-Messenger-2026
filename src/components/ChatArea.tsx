@@ -8,7 +8,8 @@ import { Message, Contact, Channel } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import { translateUI } from "../translations";
 import { 
-  Send, 
+  Send,
+  Mic, 
   Volume2, 
   Smile, 
   Sparkles, 
@@ -54,7 +55,7 @@ interface ChatAreaProps {
     winkId?: string,
     fileTransfer?: any,
     isGameDuel?: boolean,
-    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory",
+    gameType?: "tictactoe" | "connect4" | "rps" | "snake" | "memory" | "paint" | "battleship",
     gameId?: string,
     isCallInvite?: boolean,
     callId?: string
@@ -205,6 +206,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [isShaking, setIsShaking] = useState(false);
   const [showEmoticonPicker, setShowEmoticonPicker] = useState(false);
   const [showWinksPicker, setShowWinksPicker] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -284,6 +290,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setIsCallInitiator(false);
     setShowGameDuel(false);
     setCurrentGameId(undefined);
+    
+    // Load background preference
+    const storedBg = localStorage.getItem(`buzzi_bg_${activeId}`);
+    setChatBg(storedBg || "#f8fafc");
   }, [activeId]);
 
   useEffect(() => {
@@ -374,6 +384,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [mmsFont, setMmsFont] = useState<string>("Comic Sans MS"); // Comic Sans default lol
   const [isBold, setIsBold] = useState(true);
   const [showColorPanel, setShowColorPanel] = useState(true);
+  
+  // Custom Chat Background
+  const [chatBg, setChatBg] = useState<string>("#f8fafc");
+  const [showBgPanel, setShowBgPanel] = useState(false);
 
 // Music Ticker Playlists & Dynamic States
   const CONTACT_PLAYLISTS: Record<string, string[]> = {
@@ -644,6 +658,61 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setInputText("");
     setShowEmoticonPicker(false);
     setShowWinksPicker(false);
+  };
+
+  const handleStartVoiceRecord = async () => {
+    if (isBlocked) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      setRecordingDuration(0);
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64AudioMessage = reader.result?.toString();
+          if (base64AudioMessage && audioChunksRef.current.length > 0) {
+            onSendMessage(`[VoiceMessage]${base64AudioMessage}`, false);
+            setIsUserScrolledUp(false);
+          }
+        };
+        clearInterval(recordingIntervalRef.current as NodeJS.Timeout);
+      };
+
+      mediaRecorder.start();
+      setIsRecordingVoice(true);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+      hiveAudio.playBeep(440, 0.1, "sine");
+    } catch (err) {
+      console.warn("Could not start voice record", err);
+    }
+  };
+
+  const handleStopVoiceRecord = (cancel: boolean = false) => {
+    if (mediaRecorderRef.current && isRecordingVoice) {
+      if (cancel) {
+        audioChunksRef.current = [];
+      }
+      mediaRecorderRef.current.stop();
+      setIsRecordingVoice(false);
+      clearInterval(recordingIntervalRef.current as NodeJS.Timeout);
+      if (cancel) {
+         hiveAudio.playBeep(220, 0.1, "sine");
+      } else {
+         hiveAudio.playBeep(880, 0.1, "sine");
+      }
+    }
   };
 
   const handleSendWink = (winkId: string, title: string) => {
@@ -950,6 +1019,49 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           >
             A
           </button>
+          
+          {/* Chat Background Picker */}
+          <div className="relative flex items-center">
+            <button
+              onClick={() => {
+                setShowBgPanel(!showBgPanel);
+                hiveAudio.playHoneyPop();
+              }}
+              className={`hover:bg-[#cfe1f5] text-slate-700 px-2 py-0.5 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all ${showBgPanel ? "bg-[#cfe1f5]/60 border border-slate-300" : "border border-transparent"}`}
+              title="Chat-achtergrond wijzigen"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>Achtergrond</span>
+            </button>
+            
+            {showBgPanel && (
+              <div className="absolute left-0 bottom-full mb-1.5 bg-white border border-[#8da7c1] rounded-md shadow-xl p-2 w-64 z-50 animate-fade-in grid grid-cols-4 gap-1.5">
+                {[
+                  { id: "default", name: "Standaard", value: "#f8fafc" },
+                  { id: "sky", name: "Luchtblauw", value: "#e0f2fe" },
+                  { id: "pink", name: "Babyroze", value: "#fce7f3" },
+                  { id: "green", name: "Mintgroen", value: "#d1fae5" },
+                  { id: "dark", name: "Dark Mode", value: "#1e293b" },
+                  { id: "dots", name: "Stipjes", value: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiLz48Y2lyY2xlIGN4PSIyIiBjeT0iMiIgcj0iMSIgZmlsbD0iI2UxNWU5OCIvPjwvc3ZnPic)" },
+                  { id: "grid", name: "Ruitjes", value: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIiBmaWxsPSIjZmZmIi8+PHBhdGggZD0iTTAgMjBoMjBWMEgwem0xOS0xaS0xOFYxaDE4djE4eiIgZmlsbD0iI2YxZjVmOSIvPjwvc3ZnPic)" },
+                  { id: "clouds", name: "Wolken", value: "linear-gradient(to bottom, #bae6fd, #f0f9ff)" }
+                ].map(bg => (
+                  <button
+                    key={bg.id}
+                    onClick={() => {
+                      setChatBg(bg.value);
+                      if (activeId) localStorage.setItem(`buzzi_bg_${activeId}`, bg.value);
+                      setShowBgPanel(false);
+                      hiveAudio.playNotification();
+                    }}
+                    className={`w-full aspect-square rounded-md border shadow-sm transition-all hover:scale-105 active:scale-95 ${chatBg === bg.value ? "ring-2 ring-sky-500 border-sky-400" : "border-slate-300"}`}
+                    style={{ background: bg.value }}
+                    title={bg.name}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Emoticon list trigger */}
@@ -1033,7 +1145,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       {/* Two-Column Chat Canvas: Message Feed on the Left, Display Avatars on the Right */}
-      <div className="flex-1 flex overflow-hidden bg-slate-50 relative">
+      <div className="flex-1 flex overflow-hidden relative transition-all duration-300" style={{ background: chatBg }}>
 
         {/* Column 1: Messaging Feed */}
         <div 
@@ -1071,6 +1183,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 );
               }
 
+              if (msg.text.startsWith("[VoiceMessage]")) {
+                const audioData = msg.text.replace("[VoiceMessage]", "");
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex flex-col mb-4 ${isMe ? "items-end" : "items-start"} max-w-[85%] ${isMe ? "ml-auto" : "mr-auto"}`}
+                  >
+                    <div className="flex items-baseline gap-2 mb-1 px-1">
+                      <span className="font-bold text-[13.5px] text-[#2c4e75]">
+                        {msg.senderName}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono tracking-tight opacity-75">
+                        {msg.timestamp}
+                      </span>
+                    </div>
+                    <div className={`p-3 rounded-2xl border shadow-sm flex flex-col gap-2 relative z-10 ${
+                        isMe 
+                          ? "bg-gradient-to-b from-[#e3f0fb] to-[#d4e6f6] border-[#abc4df] rounded-tr-sm" 
+                          : "bg-white border-[#d2dce6] rounded-tl-sm"
+                      }`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🎤</span>
+                        <audio src={audioData} controls className="h-8 w-48" />
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              }
+
               // Custom Retro Buzzi MSN Game Invitation Card
               if (msg.isGameDuel) {
                 const DutchGameName = msg.gameType === "tictactoe" 
@@ -1081,6 +1224,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   ? "Buzzi Slang (Snake)"
                   : msg.gameType === "memory"
                   ? "Geheugen Trainer"
+                  : msg.gameType === "paint"
+                  ? "Paint Duel"
                   : "Steen, Papier, Schaar";
                 return (
                   <motion.div
@@ -2124,9 +2269,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <button 
             type="button"
             onClick={triggerNudge}
-            disabled={isBlocked}
+            disabled={isBlocked || isRecordingVoice}
             className={`p-3 rounded-xl border transition-all focus:outline-none flex-shrink-0 active:scale-90 ${
-              isBlocked 
+              isBlocked || isRecordingVoice
                 ? "bg-stone-50 text-stone-300 border-stone-200 cursor-not-allowed" 
                 : "bg-red-50 hover:bg-red-100 hover:text-red-700 text-red-500 border border-red-200 cursor-pointer"
             }`}
@@ -2137,10 +2282,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
           {/* Chat input form */}
           <div className="relative flex-1">
-            <input
-              type="text"
-              value={inputText}
-              disabled={isBlocked}
+            {isRecordingVoice ? (
+              <div className="w-full bg-[#f8fbfd] border-2 border-red-400 text-[#1a3857] p-2.5 sm:p-3 rounded-xl flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                   <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></div>
+                   <span className="text-sm font-semibold text-red-600">Opnemen... {recordingDuration}s</span>
+                 </div>
+                 <button onClick={() => handleStopVoiceRecord(true)} className="text-xs font-bold text-slate-500 hover:text-red-500 cursor-pointer px-2">Annuleren</button>
+              </div>
+            ) : (
+              <>
+              <input
+                type="text"
+                value={inputText}
+                disabled={isBlocked}
               onChange={(e) => {
                 setInputText(e.target.value);
                 if (onUserTyping) {
@@ -2167,20 +2322,41 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 {inputText.length}/1000
               </span>
             )}
+            </>
+            )}
           </div>
-
           {/* Send buttons */}
-          <button
-            onClick={handleSend}
-            disabled={!inputText.trim() || isBlocked}
-            className={`p-3 rounded-xl transition-all shadow focus:outline-none flex-shrink-0 flex items-center justify-center ${
-              inputText.trim() && !isBlocked
-                ? "bg-[#2576b5] hover:bg-[#1d5c8a] active:scale-95 text-white cursor-pointer"
-                : "bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200/50 shadow-none"
-            }`}
-          >
-            <Send className="w-5 h-5" />
-          </button>
+          <div className="flex gap-2">
+            {!isRecordingVoice && !inputText.trim() && !isBlocked && (
+              <button
+                onClick={handleStartVoiceRecord}
+                className="p-3 rounded-xl transition-all shadow focus:outline-none flex-shrink-0 flex items-center justify-center bg-[#bad0e3] hover:bg-[#a6bfd6] active:scale-95 text-[#1d5c8a] cursor-pointer"
+                title="Spraakbericht Opnemen"
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+            )}
+            {isRecordingVoice ? (
+               <button
+                 onClick={() => handleStopVoiceRecord(false)}
+                 className="p-3 rounded-xl transition-all shadow focus:outline-none flex-shrink-0 flex items-center justify-center bg-red-600 hover:bg-red-700 active:scale-95 text-white cursor-pointer"
+               >
+                 <Send className="w-5 h-5" />
+               </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!inputText.trim() || isBlocked}
+                className={`p-3 rounded-xl transition-all shadow focus:outline-none flex-shrink-0 flex items-center justify-center ${
+                  inputText.trim() && !isBlocked
+                    ? "bg-[#2576b5] hover:bg-[#1d5c8a] active:scale-95 text-white cursor-pointer"
+                    : "bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200/50 shadow-none"
+                }`}
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
