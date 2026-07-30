@@ -1116,7 +1116,7 @@ export const ChatGameDuel: React.FC<ChatGameDuelProps> = ({
         c4Board: Array(6).fill(null).map(() => Array(7).fill(null)),
         turn: amIPlayer1 ? "player1" : "player2",
         winner: null,
-        rpsChoices: { player1: null, player2: null }, paintStrokes: [],
+        rpsChoices: { player1: null, player2: null }, 
         paintStrokes: []
       };
 

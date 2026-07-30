@@ -9,6 +9,7 @@ import { ChatArea } from "./components/ChatArea";
 import { Message, Channel, Contact, StatusType } from "./types";
 import { hiveAudio } from "./utils/audio";
 import { Sparkles, Trophy, Users, RefreshCw, Smile, Compass, AlertTriangle, Play, Database, Wifi, CheckCircle2, Share2, Link, Send, Smartphone, Laptop, Volume2, Coins, Gamepad2, Video } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { LoginScreen } from "./components/LoginScreen";
 import { Minesweeper } from "./components/Minesweeper";
 import { LegalModal } from "./components/LegalModal";
@@ -294,6 +295,7 @@ export default function App() {
   const [isLegalModalOpen, setIsLegalModalOpen] = useState<boolean>(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState<boolean>(false);
   const [blockedIps, setBlockedIps] = useState<string[]>([]);
+  const [isBanned, setIsBanned] = useState<boolean>(false);
   const [bannedEmails, setBannedEmails] = useState<string[]>([]);
   const [deletedMsgIds, setDeletedMsgIds] = useState<string[]>(() => {
     try {
@@ -344,7 +346,7 @@ export default function App() {
     show: boolean;
     name: string;
     avatar: string;
-    event: "online" | "offline";
+    event: "online" | "offline" | "bezet" | "afwezig";
     email?: string;
   } | null>(null);
 
@@ -675,7 +677,7 @@ exit
     if (fields.listeningTo !== undefined) localStorage.setItem("buzzi_remembered_listening", fields.listeningTo);
 
     try {
-      await fetch("/api/db/users", {
+      const res = await fetch("/api/db/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -690,6 +692,7 @@ exit
           ...fields
         })
       });
+      if (res.status === 403) setIsBanned(true);
     } catch (err) {
       console.warn("Failed to update profile in database:", err);
     }
@@ -724,6 +727,10 @@ exit
   const fetchBlockedIps = async () => {
     try {
       const res = await fetch("/api/admin/blocked-ips");
+      if (res.status === 403) {
+        setIsBanned(true);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setBlockedIps(data);
@@ -947,10 +954,11 @@ exit
           const src = playingElement.src || "";
           
           // Pattern-match with common stream signatures
+          const srcLower = src.toLowerCase();
           if (src.includes("RADIO538")) {
             updateStatusIfChanged("Radio 538 (Live FM) 📻");
             return;
-          } else if (src.includes("qmusic")) {
+          } else if (srcLower.includes("qmusic")) {
             updateStatusIfChanged("Qmusic NL (Live) 📻");
             return;
           } else if (src.includes("RADIO10_80S_HITS")) {
@@ -1276,6 +1284,10 @@ exit
     const syncUsers = async () => {
       try {
         const res = await fetch("/api/db/users?t=" + Date.now());
+        if (res.status === 403) {
+          setIsBanned(true);
+          return;
+        }
         if (res.status === 200) {
           const list = await res.json();
           
@@ -1292,7 +1304,7 @@ exit
                       fetch("/api/db/users", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(userDoc)
+                        body: JSON.stringify({ ...userDoc, isBackgroundRestore: true })
                       }).catch(e => console.warn("Background restore user failed:", e));
                     }
                   });
@@ -1323,7 +1335,10 @@ exit
                 personalMessage: data.personalMessage || "",
                 listeningTo: data.listeningTo || "",
                 isPremium: !!data.isPremium,
-                updatedAtTimestamp: data.updatedAtTimestamp
+                updatedAtTimestamp: data.updatedAtTimestamp,
+                ip: data.ip,
+                locatie: data.locatie,
+                laatstGezien: data.laatstGezien
               };
             });
           setRegisteredUsers(filtered);
@@ -1428,6 +1443,40 @@ exit
             setTimeout(() => {
               setMsnToast(curr => {
                 if (curr && curr.name === buddy.name && curr.event === "offline") {
+                  return { ...curr, show: false };
+                }
+                return curr;
+              });
+            }, 6000);
+          } else if (prevStatus === "online" && newStatus === "bezet") {
+            hiveAudio.playBusyAlert();
+            setMsnToast({
+              show: true,
+              name: buddy.name,
+              avatar: buddy.avatar,
+              event: "bezet",
+              email: subtitle
+            });
+            setTimeout(() => {
+              setMsnToast(curr => {
+                if (curr && curr.name === buddy.name && curr.event === "bezet") {
+                  return { ...curr, show: false };
+                }
+                return curr;
+              });
+            }, 6000);
+          } else if (prevStatus === "online" && newStatus === "afwezig") {
+            hiveAudio.playAwayAlert();
+            setMsnToast({
+              show: true,
+              name: buddy.name,
+              avatar: buddy.avatar,
+              event: "afwezig",
+              email: subtitle
+            });
+            setTimeout(() => {
+              setMsnToast(curr => {
+                if (curr && curr.name === buddy.name && curr.event === "afwezig") {
                   return { ...curr, show: false };
                 }
                 return curr;
@@ -1727,6 +1776,10 @@ exit
     const syncMessages = async () => {
       try {
         const res = await fetch("/api/db/messages?t=" + Date.now());
+        if (res.status === 403) {
+          setIsBanned(true);
+          return;
+        }
         if (res.status === 200) {
           const list = await res.json();
           
@@ -1918,6 +1971,66 @@ exit
     setUserStatus(val);
     updateProfileInDatabase({ status: val });
   };
+
+  // Auto-away feature (5 minutes of inactivity)
+  const userStatusRefForAway = useRef(userStatus);
+  const handleUpdateStatusRef = useRef(handleUpdateStatus);
+  const isAutoAwayRef = useRef(false);
+
+  useEffect(() => {
+    userStatusRefForAway.current = userStatus;
+    handleUpdateStatusRef.current = handleUpdateStatus;
+  }, [userStatus, handleUpdateStatus]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let lastActivity = Date.now();
+
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastActivity < 1000) return; // Throttle to 1 second
+      lastActivity = now;
+
+      // If we were auto-away, set back to online
+      if (isAutoAwayRef.current) {
+        if (userStatusRefForAway.current === "afwezig") {
+          handleUpdateStatusRef.current("online");
+        }
+        isAutoAwayRef.current = false;
+      }
+
+      clearTimeout(timeoutId);
+      
+      // Set new timer for 5 minutes
+      timeoutId = setTimeout(() => {
+        if (userStatusRefForAway.current === "online") {
+          handleUpdateStatusRef.current("afwezig");
+          isAutoAwayRef.current = true;
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+    };
+
+    // Initialize timer
+    handleActivity();
+
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("mousedown", handleActivity);
+    window.addEventListener("touchstart", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("mousedown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+    };
+  }, [currentUser]);
+
   const handleUpdateAvatar = (val: string) => {
     setUserAvatar(val);
     updateProfileInDatabase({ avatar: val });
@@ -2329,7 +2442,7 @@ exit
         setIsTyping(false);
         
         await writeSimulatedReply(
-          "🤖 *PING!* Mijn inbelverbinding kraakt een beetje! Zorg dat de juiste GEMINI_API_KEY in je Secrets-instellingen staat om live te praten! brb mss... (A)",
+          "Oeps, mijn inbelverbinding viel even weg! 📞 Mijn moeder pakte zeker weer de telefoon... Kun je dat nog een keer zeggen? (A)",
           "🤖 Buzzi Bot (H)",
           "🤖",
           "queen"
@@ -2427,6 +2540,18 @@ exit
           <div className="text-sm font-bold text-[#1d5c8a]">Buzzi Messenger aan het opstarten...</div>
           <div className="text-[10px] text-slate-400 font-mono">Beveiligde database initialiseren...</div>
         </div>
+      </div>
+    );
+  }
+
+  if (isBanned) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-red-950 text-red-50 p-6 space-y-4 text-center select-none font-sans">
+        <h1 className="text-4xl font-black text-red-500 animate-pulse uppercase tracking-wider">Toegang Geweigerd</h1>
+        <p className="text-sm font-bold text-red-200 max-w-md leading-relaxed">
+          Je IP-adres is door de Buzzi beheerder geblokkeerd wegens overtreding van de richtlijnen of misbruik van de dienst.
+        </p>
+        <div className="text-5xl mt-2">🚫</div>
       </div>
     );
   }
@@ -2619,9 +2744,32 @@ exit
             </button>
             {isUserAnAdmin && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   setActiveUtilityTab("admin");
                   hiveAudio.playHoneyPop();
+                  try {
+                    await fetchBlockedIps();
+                    const res = await fetch("/api/db/users?t=" + Date.now());
+                    if (res.status === 200) {
+                      const list = await res.json();
+                      const filtered = list.filter((data: any) => data.uid !== currentUser.uid).map((data: any) => ({
+                        id: data.uid,
+                        name: data.name || "Buzzi Gebruiker",
+                        email: data.email || "",
+                        avatar: data.avatar || "🧑‍🚀",
+                        status: data.status || "online",
+                        updatedAtTimestamp: data.updatedAtTimestamp,
+                        ip: data.ip,
+                        locatie: data.locatie,
+                        laatstGezien: data.laatstGezien
+                      }));
+                      setRegisteredUsers(filtered);
+                    } else if (res.status === 403) {
+                      setIsBanned(true);
+                    }
+                  } catch (e) {
+                    console.warn("Failed to fetch fresh admin data", e);
+                  }
                 }}
                 className={`flex-1 text-center py-1.5 rounded text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 relative ${
                   activeUtilityTab === "admin"
@@ -3216,13 +3364,44 @@ exit
                       </form>
                     </div>
 
+                    {/* User Activity Dashboard */}
+                    <div className="bg-white border border-sky-200 rounded p-3 text-[10px] text-slate-800 shadow-sm mt-4">
+                      <div className="font-extrabold text-sky-800 uppercase tracking-wider mb-2">
+                        📊 Activiteit (Laatst gezien per uur)
+                      </div>
+                      <div className="h-[120px] w-full mt-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={Array.from({ length: 24 }, (_, i) => {
+                            const hourCount = registeredUsers.filter(u => {
+                              if (!u.updatedAtTimestamp) return false;
+                              return new Date(u.updatedAtTimestamp).getHours() === i;
+                            }).length;
+                            return {
+                              hour: `${i.toString().padStart(2, '0')}:00`,
+                              active: hourCount
+                            };
+                          })}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="hour" tick={{fontSize: 8}} interval={3} stroke="#94a3b8" />
+                            <YAxis tick={{fontSize: 8}} allowDecimals={false} stroke="#94a3b8" width={20} />
+                            <Tooltip 
+                              contentStyle={{ fontSize: '9px', padding: '4px', borderRadius: '4px' }}
+                              formatter={(value) => [`${value} gebruikers`, 'Online']}
+                              labelStyle={{ fontWeight: 'bold', color: '#0f172a' }}
+                            />
+                            <Bar dataKey="active" fill="#0ea5e9" radius={[2, 2, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
                     {/* User Management Section */}
                     <div className="bg-white border border-sky-200 rounded p-3 text-[10px] text-slate-800 shadow-sm mt-4">
                       <div className="font-extrabold text-sky-800 uppercase tracking-wider mb-2">
                         👥 Gebruikersbeheer ({registeredUsers.length})
                       </div>
                       <div className="max-h-[200px] overflow-y-auto space-y-1">
-                        {registeredUsers.map(u => (
+                        {[...registeredUsers].sort((a, b) => (b.updatedAtTimestamp || 0) - (a.updatedAtTimestamp || 0)).map(u => (
                           <div key={u.id} className="flex justify-between items-center bg-slate-50 p-1.5 rounded border border-slate-100">
                              <div className="flex flex-col">
                                <span className="font-bold">{u.name}</span>
@@ -3668,7 +3847,10 @@ exit
               <span className="text-3xl select-none">{msnToast.avatar}</span>
               {/* Status indicator bubble */}
               <span className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                msnToast.event === "online" ? "bg-emerald-500" : "bg-slate-400"
+                msnToast.event === "online" ? "bg-emerald-500" : 
+                msnToast.event === "bezet" ? "bg-red-500" :
+                msnToast.event === "afwezig" ? "bg-orange-400" :
+                "bg-slate-400"
               }`} />
             </div>
 
@@ -3679,6 +3861,10 @@ exit
               <p className="text-[10.5px] text-slate-700 font-bold mt-1 leading-snug">
                 {msnToast.event === "online" 
                   ? "is zojuist online gegaan!" 
+                  : msnToast.event === "bezet"
+                  ? "is nu bezet."
+                  : msnToast.event === "afwezig"
+                  ? "is zojuist afwezig gemeld."
                   : "is zojuist offline gegaan."
                 }
               </p>

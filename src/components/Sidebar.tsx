@@ -377,37 +377,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
     audio.onerror = null;
     
     // Use target direct stream address for optimal speed, native decoder and no bandwidth throttling
-    audio.src = track.url;
+    // However, if the stream is from streamtheworld, it is highly likely to be blocked by adblockers.
+    // In that case, use the proxy by default so we don't lose the user interaction context.
+    let finalUrl = track.url;
+    if (finalUrl.includes("streamtheworld.com")) {
+      const fallbackUrl = `/api/proxy-audio?url=${encodeURIComponent(track.url)}`;
+      finalUrl = new URL(fallbackUrl, window.location.origin).toString();
+    }
+    
+    audio.src = finalUrl;
     audio.load();
     audio.volume = volume / 100;
     
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn("Direct play failed/blocked, falling back to secure proxy...", err);
-        const fallbackUrl = `/api/proxy-audio?url=${encodeURIComponent(track.url)}`;
-        const absoluteFallback = new URL(fallbackUrl, window.location.origin).toString();
-        
-        if (audio.src !== absoluteFallback) {
-          audio.src = absoluteFallback;
-          audio.load();
-          audio.play().catch((proxyErr) => {
-            console.error("Direct and proxy play both blocked or failed:", proxyErr);
-          });
+        console.warn("Play failed/blocked...", err);
+        if (!finalUrl.includes("proxy-audio")) {
+          const fallbackUrl = `/api/proxy-audio?url=${encodeURIComponent(track.url)}`;
+          const absoluteFallback = new URL(fallbackUrl, window.location.origin).toString();
+          if (audio.src !== absoluteFallback) {
+            audio.src = absoluteFallback;
+            audio.load();
+            audio.play().catch((proxyErr) => {
+              console.error("Direct and proxy play both blocked or failed:", proxyErr);
+            });
+          }
         }
       });
     }
     
     // Set dynamic onError delegate to slide over to proxy in case stream loading chokes or drops
     audio.onerror = () => {
-      const fallbackUrl = `/api/proxy-audio?url=${encodeURIComponent(track.url)}`;
-      const absoluteFallback = new URL(fallbackUrl, window.location.origin).toString();
-      if (audio.src !== absoluteFallback) {
-        console.warn("Stream error triggered. Initiating proxy recovery stream...");
-        audio.src = absoluteFallback;
-        audio.load();
-        audio.volume = volume / 100;
-        audio.play().catch((e) => console.log("Proxy retry failed:", e));
+      if (!audio.src.includes("proxy-audio")) {
+        const fallbackUrl = `/api/proxy-audio?url=${encodeURIComponent(track.url)}`;
+        const absoluteFallback = new URL(fallbackUrl, window.location.origin).toString();
+        if (audio.src !== absoluteFallback) {
+          console.warn("Stream error triggered. Initiating proxy recovery stream...");
+          audio.src = absoluteFallback;
+          audio.load();
+          audio.volume = volume / 100;
+          audio.play().catch((e) => console.log("Proxy retry failed:", e));
+        }
       }
     };
     

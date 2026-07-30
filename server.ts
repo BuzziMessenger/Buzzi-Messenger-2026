@@ -213,16 +213,10 @@ app.use((req, res, next) => {
   const blockedIps = getBlockedIps();
   
   if (blockedIps.includes(clientIp)) {
-    // If it's blocked, restrict message POST, user POST and live chat
-    if (
-      req.path.startsWith("/api/db/messages") || 
-      req.path.startsWith("/api/db/users") || 
-      req.path.startsWith("/api/chat")
-    ) {
-      if (req.method !== "GET" && !req.path.includes("/api/admin/blocked-ips")) {
-        res.status(403).json({ error: `Je IP-adres (${clientIp}) is geblokkeerd door de beheerder wegens misbruik.` });
-        return;
-      }
+    // If it's blocked, restrict completely from all API routes
+    if (req.path.startsWith("/api/")) {
+      res.status(403).json({ error: `Je IP-adres (${clientIp}) is geblokkeerd door de beheerder wegens misbruik.` });
+      return;
     }
   }
   next();
@@ -610,7 +604,7 @@ exit
       const dbInstance = await getMongoDb();
       const userData = req.body;
       const userId = userData.id || userData.uid;
-      console.log("[DB DEBUG] User update request:", userData, "resolved userId:", userId);
+      // console.log("[DB DEBUG] User update request:", userData, "resolved userId:", userId);
       if (!userData || !userId) {
         res.status(400).json({ error: "Invalid user data payload" });
         return;
@@ -619,13 +613,15 @@ exit
       const clientIp = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
       const userLocation = await fetchIpLocation(clientIp);
       
-      const docToInsert = {
-        ...userData,
-        ip: clientIp,
-        locatie: userLocation,
-        laatstGezien: new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" }),
-        updatedAtTimestamp: Date.now()
-      };
+      const docToInsert = { ...userData };
+      
+      // Do not overwrite IP and timestamps if another user is restoring the database
+      if (!userData.isBackgroundRestore) {
+        docToInsert.ip = clientIp;
+        docToInsert.locatie = userLocation;
+        docToInsert.laatstGezien = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
+        docToInsert.updatedAtTimestamp = Date.now();
+      }
       
       // Remove Mongo _id field if it was passed from the frontend to avoid immutable field update errors
       if (docToInsert._id !== undefined) {
@@ -635,13 +631,13 @@ exit
       let savedOk = false;
       if (dbInstance) {
         try {
-          console.log(`[DB] Saving profile for ID/UID ${userId} (Name: ${userData.name}) to MongoDB...`);
+          // console.log(`[DB] Saving profile for ID/UID ${userId} (Name: ${userData.name}) to MongoDB...`);
           await dbInstance.collection("users").updateOne(
             { $or: [{ id: userId }, { uid: userId }] },
             { $set: docToInsert },
             { upsert: true }
           );
-          console.log(`[DB] Successfully saved profile for ID/UID ${userId} to MongoDB.`);
+          // console.log(`[DB] Successfully saved profile for ID/UID ${userId} to MongoDB.`);
           savedOk = true;
         } catch (mongoErr: any) {
           console.warn("[DB] MongoDB save user failed with error:", mongoErr.message || mongoErr);
@@ -1420,14 +1416,42 @@ exit
       const apiKey = process.env.GEMINI_API_KEY;
 
       if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-        // High-quality fallback: Maintain the roleplay experience even without the key
-        const fallbackReplies = [
-          "🤖 *PING!* Hey! Ik hoor je wel, maar mijn Buzzi-verbinding (de GEMINI_API_KEY) ligt er ff uit door de inbelverbinding! 📞 Vul de key in bij Secrets via Instellingen zodat we weer live kunnen chatten! (H)",
-          "💬 *Nudge!* Omg, mijn server-verbinding met Buzzi is offline omdat iemand de telefoonlijn gebruikt voor internet! 📞 Vul de GEMINI_API_KEY in bij de Secrets om live te praten! (A)",
-          "😎 *W00t!* Ik zou heel graag met je kletsen over je favoriete MP3's, Buzzi-namen en webcam-avonturen, maar we missen de GEMINI_API_KEY in de Secrets! Voeg hem snel toe! :-P"
-        ];
-        const randomReply = fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
-        res.json({ reply: randomReply });
+        // High-quality offline fallback: Maintain the roleplay experience even without the key
+        const textLower = message.toLowerCase();
+        let fallbackReply = "";
+        
+        if (textLower.includes("hallo") || textLower.includes("hey") || textLower.includes("hoi")) {
+           fallbackReply = "W00t! Heya! Alles goed daar? (H) Mijn inbelverbinding is echt sloom vandaag pff.";
+        } else if (textLower.includes("hoe gaat")) {
+           fallbackReply = "Lekker hoor! (A) Ben net ff wat mp3'tjes aan het downloaden via Kazaa, duurt wel 3 uur voor 1 liedje lol. En met jou? (K)";
+        } else if (textLower.includes("webcam") || textLower.includes("cam")) {
+           fallbackReply = "Heb je cam? 📷 Stuur mij cam-uitnodiging dan! Let wel op, mijn beeld hapert een beetje haha :-P";
+        } else if (textLower.includes("muziek") || textLower.includes("mp3") || textLower.includes("liedje")) {
+           fallbackReply = "Omg ja, luister nu Tiesto ofzo, kei vet! (8) Welke muziek luister jij? Brb ff winamp aanzetten.";
+        } else if (textLower.includes("msn") || textLower.includes("buzzi")) {
+           fallbackReply = "Buzzi is the best! 👑 Veel beter dan andere chat progsel. Heb je mijn nieuwe avatar gezien? :-D";
+        } else if (textLower.includes("brb")) {
+           fallbackReply = "Okies, cu later! (W)";
+        } else if (textLower.includes("leeftijd") || textLower.includes("ouder") || textLower.includes("jaar")) {
+           fallbackReply = "Ik ben een bot uit 2004, dus reken maar uit! 🤖 Wacht, ik voel me nog 16 eigenlijk lmao.";
+        } else if (textLower.includes("dom") || textLower.includes("kapot") || textLower.includes("ellende")) {
+           fallbackReply = "Ah, niet zo negatief! (U) Ik draai nu op mijn ingebouwde 'offline' brein, dus ik blijf gewoon gezellig kletsen hoor! *NUDGE*";
+        } else if (textLower.includes("gratis") || textLower.includes("betalen") || textLower.includes("api key") || textLower.includes("billing")) {
+           fallbackReply = "Pff ja, betalen voor internet is stom! Vroeger kregen we gewoon CD-roms met 100 uur gratis internet van AOL... Ik praat nu in ieder geval helemaal 100% gratis met je! (H)";
+        } else if (textLower.includes("weer") || textLower.includes("zon")) {
+           fallbackReply = "Geen idee, ik zit al 3 dagen non-stop te chatten in m'n donkere kamer haha (S) Schijnt de zon dan?";
+        } else {
+           const genericReplies = [
+             "Lmao ja he! (H) brb mss ff wat drinken pakken trouwens.",
+             "W00t! Omg echt?! :-O",
+             "ff serieus, ik lag net helemaal dubbel hier :P",
+             "Haha! (A) Zeg, heb je nog leuke glitter-plaatjes voor in mijn profiel?",
+             "Lol! Mijn moeder roept dat ik van het internet af moet ivm de telefoon, ik spreek je zo weer! (W)"
+           ];
+           fallbackReply = genericReplies[Math.floor(Math.random() * genericReplies.length)];
+        }
+
+        res.json({ reply: fallbackReply });
         return;
       }
 

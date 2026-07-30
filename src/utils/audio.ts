@@ -1048,6 +1048,106 @@ class BuzziAudioSynthesizer {
     this.playLogin();
   }
 
+  public playBusyAlert() {
+    const scheme = this.getActiveScheme();
+    if (scheme === "mute") return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const actx = this.ctx;
+      const now = actx.currentTime;
+
+      // 2004-style rigid, quick dual-tone "stop/busy" sound (descending minor third)
+      [
+        { freq: 440, delay: 0 },    // A4
+        { freq: 349.23, delay: 0.12 } // F4
+      ].forEach(({ freq, delay }) => {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(freq, now + delay);
+        
+        // Slightly softer low-fi 2004 square envelope
+        gain.gain.setValueAtTime(0.001, now + delay);
+        gain.gain.linearRampToValueAtTime(0.04, now + delay + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.1);
+        
+        // Optional lowpass filter for that retro compressed feel
+        const filter = actx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 1200;
+        
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(actx.destination);
+        
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.12);
+      });
+    } catch (e) {
+      console.warn("Busy sound failed:", e);
+    }
+  }
+
+  public playBeep(freq = 440, duration = 0.1, type: OscillatorType = "sine") {
+    const scheme = this.getActiveScheme();
+    if (scheme === "mute") return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const actx = this.ctx;
+      const now = actx.currentTime;
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.1, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      osc.connect(gain);
+      gain.connect(actx.destination);
+      osc.start(now);
+      osc.stop(now + duration);
+    } catch (e) {
+      console.warn("Beep failed:", e);
+    }
+  }
+
+  public playAwayAlert() {
+    const scheme = this.getActiveScheme();
+    if (scheme === "mute") return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const actx = this.ctx;
+      const now = actx.currentTime;
+
+      // 2004-style slow, fading "away" chime
+      // Uses sine waves for a soft bell-like chime
+      [
+        { freq: 523.25, delay: 0 },    // C5
+        { freq: 440.00, delay: 0.25 }  // A4
+      ].forEach(({ freq, delay }) => {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + delay);
+        
+        gain.gain.setValueAtTime(0.001, now + delay);
+        gain.gain.linearRampToValueAtTime(0.08, now + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.6);
+        
+        osc.connect(gain);
+        gain.connect(actx.destination);
+        
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.6);
+      });
+    } catch (e) {
+      console.warn("Away sound failed:", e);
+    }
+  }
+
   public playOfflineAlert() {
     const scheme = this.getActiveScheme();
     if (scheme === "mute") return;
